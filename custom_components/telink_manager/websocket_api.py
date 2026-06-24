@@ -10,6 +10,7 @@ from . import backups, bulk, gatt
 from .const import DOMAIN
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/proxies", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_proxies(hass: HomeAssistant, connection, msg):
@@ -17,6 +18,7 @@ async def ws_proxies(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], gatt.async_proxies(hass, msg["mac"]))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/scan"})
 @websocket_api.async_response
 async def ws_scan(hass: HomeAssistant, connection, msg):
@@ -27,6 +29,7 @@ async def ws_scan(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"devices": devices})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_name",
@@ -51,6 +54,7 @@ async def ws_set_name(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"ok": True, "mac": mac, "name": name})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_device_name",
@@ -65,6 +69,7 @@ async def ws_set_device_name(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_comfort",
@@ -82,6 +87,7 @@ async def ws_set_comfort(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_time",
@@ -96,6 +102,7 @@ async def ws_set_time(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_sensor",
@@ -115,6 +122,7 @@ async def ws_set_sensor(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/sensor_default", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_sensor_default(hass: HomeAssistant, connection, msg):
@@ -123,6 +131,7 @@ async def ws_sensor_default(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/lcd",
@@ -142,6 +151,7 @@ async def ws_lcd(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/raw",
@@ -157,6 +167,7 @@ async def ws_raw(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/get_mac", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_get_mac(hass: HomeAssistant, connection, msg):
@@ -165,6 +176,7 @@ async def ws_get_mac(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_mac",
@@ -179,6 +191,7 @@ async def ws_set_mac(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/get_bind_key", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_get_bind_key(hass: HomeAssistant, connection, msg):
@@ -187,6 +200,7 @@ async def ws_get_bind_key(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/set_bind_key",
@@ -201,6 +215,7 @@ async def ws_set_bind_key(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/factory_reset", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_factory_reset(hass: HomeAssistant, connection, msg):
@@ -209,6 +224,7 @@ async def ws_factory_reset(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/reboot", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_reboot(hass: HomeAssistant, connection, msg):
@@ -217,6 +233,7 @@ async def ws_reboot(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/read",
@@ -237,6 +254,7 @@ async def ws_read(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/backup_save",
@@ -251,6 +269,7 @@ async def ws_backup_save(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], await backups.async_save(hass, snap))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/backups_index"})
 @websocket_api.async_response
 async def ws_backups_index(hass: HomeAssistant, connection, msg):
@@ -258,6 +277,7 @@ async def ws_backups_index(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"ok": True, "devices": backups.index(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/backups_compare"})
 @websocket_api.async_response
 async def ws_backups_compare(hass: HomeAssistant, connection, msg):
@@ -265,6 +285,7 @@ async def ws_backups_compare(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"ok": True, "devices": backups.compare(hass)})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/backups_history", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_backups_history(hass: HomeAssistant, connection, msg):
@@ -272,6 +293,7 @@ async def ws_backups_history(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"ok": True, "snapshots": backups.history(hass, msg["mac"])})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/backups_list", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_backups_list(hass: HomeAssistant, connection, msg):
@@ -279,6 +301,7 @@ async def ws_backups_list(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], {"ok": True, "backups": backups.list_for(hass, msg["mac"])})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/backup_delete",
@@ -291,6 +314,7 @@ async def ws_backup_delete(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], await backups.async_delete(hass, msg["mac"], msg["ts"]))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/restore",
@@ -315,6 +339,7 @@ async def ws_restore(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/write",
@@ -329,6 +354,7 @@ async def ws_write(hass: HomeAssistant, connection, msg):
 
 
 # ----- bulk "Read all" (server-side job, survives F5/navigation) -----
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "telink_manager/read_all",
@@ -340,18 +366,21 @@ def ws_read_all(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], bulk.start(hass, msg["entries"]))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/bulk_status"})
 @callback
 def ws_bulk_status(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], bulk.status(hass))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/bulk_cancel"})
 @callback
 def ws_bulk_cancel(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], bulk.cancel(hass))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/bulk_dismiss"})
 @callback
 def ws_bulk_dismiss(hass: HomeAssistant, connection, msg):

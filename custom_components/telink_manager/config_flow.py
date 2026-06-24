@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigFlow
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
 from .const import DOMAIN, PANEL_TITLE
 
@@ -19,7 +18,7 @@ class TelinkManagerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the user-initiated step (a simple confirmation)."""
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
@@ -27,7 +26,7 @@ class TelinkManagerConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=PANEL_TITLE, data={})
         return self.async_show_form(step_id="user")
 
-    async def async_step_import(self, import_data: dict[str, Any] | None = None) -> FlowResult:
+    async def async_step_import(self, import_data: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Migrate the legacy ``telink_manager:`` YAML setup to a config entry."""
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")

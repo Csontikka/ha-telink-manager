@@ -454,7 +454,9 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
             await asyncio.sleep(1.5)
             after = await _read_blob(client)
             # compare all written bytes; byte[9]=hw_ver is read-only/runtime, excluded.
-            ok = bytes(after[0:9]) == bytes(target[0:9]) and after[10] == target[10]
+            # Guard the length first: a glitchy device could return a short read-back, and an
+            # IndexError here would be misclassified as a connection error and trigger a retry.
+            ok = len(after) >= 11 and bytes(after[0:9]) == bytes(target[0:9]) and after[10] == target[10]
             return {
                 "ok": ok,
                 "mac": mac,
@@ -826,7 +828,9 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
             await asyncio.wait_for(client.write_gatt_char(CFG_CHAR, bytes([CMD_CFG]) + blob, response=False), timeout=6)
             await asyncio.sleep(1.5)
             after = await _read_blob(client)
-            out["config"] = bytes(after[0:9]) == bytes(blob[0:9]) and after[10] == blob[10]
+            # byte[9]=hw_ver excluded (read-only/runtime); guard length to avoid an IndexError
+            # that would abort the remaining restore parts (name/comfort/bind_key/sensor).
+            out["config"] = len(after) >= 11 and bytes(after[0:9]) == bytes(blob[0:9]) and after[10] == blob[10]
 
         if "device_name" in parts:
             nm = (snapshot.get("device_name") or "").strip()
