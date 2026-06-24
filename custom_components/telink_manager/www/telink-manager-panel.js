@@ -10,6 +10,18 @@
 // finally block, so even if the user closes the modal / navigates away the link is released and the
 // thermometer never gets stuck "connected". A token (_op) makes stale results be ignored.
 
+// HTML-escape any device- or user-supplied string before it is interpolated into innerHTML.
+// Device-advertised BLE names, on-device names, firmware reply strings and user-typed friendly
+// names are all untrusted (a BLE advertiser in range can broadcast an arbitrary name), so every
+// such value must be escaped to prevent HTML/script injection in the admin's browser.
+const escHtml = (s) =>
+  String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const ADV_TYPES = [
   [0, "atc1441"],
   [1, "pvvx"],
@@ -245,6 +257,8 @@ class TelinkManagerPanel extends HTMLElement {
     // Stop polling on this detached element — the job keeps running server-side; a fresh panel
     // re-attaches to it on connect.
     this._stopBulkPolling();
+    // Also stop the connect elapsed-timer so a detached element leaves no interval running.
+    this._stopConnTimer();
   }
 
   _maybeAutoScan() {
@@ -410,7 +424,7 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   _renderDevTable() {
-    const esc = (s) => String(s == null ? "" : s).replace(/"/g, "&quot;");
+    const esc = escHtml;
     let devs = this._devs.slice();
     if (this._sortKey) {
       const dir = this._sortDir === "asc" ? 1 : -1;
@@ -431,7 +445,7 @@ class TelinkManagerPanel extends HTMLElement {
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
           <td><span class="dot ${d.connectable ? "on" : "off"}"></span></td>
           <td><input class="fname" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="name…"></td>
-          <td>${d.name || "?"}</td><td>${d.mac}</td><td>${this._rssiCell(d.rssi)}</td>
+          <td>${escHtml(d.name) || "?"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
           <td>${d.proxy ? String(d.proxy).replace(/\s*\(.*\)\s*$/, "") : "—"}</td>
           <td>${this._battCell(d)}</td>
@@ -460,7 +474,11 @@ class TelinkManagerPanel extends HTMLElement {
       });
     this.querySelectorAll("input.fname").forEach(inp => {
       inp.addEventListener("dblclick", (e) => e.stopPropagation());
-      inp.addEventListener("change", () => this._saveName(inp.dataset.mac, inp.value));
+      inp.addEventListener("change", () => {
+        const m = inp.dataset.mac;
+        // Skip the WS round-trip + Store write when the value is unchanged.
+        if (inp.value !== (this._names[m] || "")) this._saveName(m, inp.value);
+      });
     });
   }
 
@@ -542,7 +560,7 @@ class TelinkManagerPanel extends HTMLElement {
       <div class="overlay" id="overlay">
         <div class="modal">
           <div class="modal-head">
-            <h3 id="m-title">${title}</h3>
+            <h3 id="m-title">${escHtml(title)}</h3>
             <button class="x" id="m-x" title="Close">✕</button>
           </div>
           <div id="m-body"></div>
@@ -642,7 +660,7 @@ class TelinkManagerPanel extends HTMLElement {
     const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
     const yn = (b) => (b ? "yes" : "no");
     const row = (lab, val, tip) =>
-      `<div class="fld"><span class="lab"${t(tip)}>${lab}</span><b>${val}</b></div>`;
+      `<div class="fld"><span class="lab"${t(tip)}>${lab}</span><b>${escHtml(val)}</b></div>`;
     const h = (s) => `<h3>${s}</h3>`;
     const sign = (n) => (n > 0 ? "+" : "") + n;
     const legacy = f.fw_layout === "legacy";
@@ -784,11 +802,11 @@ class TelinkManagerPanel extends HTMLElement {
 
       <h3>Read-only (info)</h3>
       <div class="ro">
-        <div class="fld"><span class="lab"${t("firmware")}>Firmware</span><b>${this._fwString(f)}</b></div>
-        ${f.model ? `<div class="fld"><span class="lab"${t("model")}>Model</span><b>${f.model}</b></div>` : ""}
+        <div class="fld"><span class="lab"${t("firmware")}>Firmware</span><b>${escHtml(this._fwString(f))}</b></div>
+        ${f.model ? `<div class="fld"><span class="lab"${t("model")}>Model</span><b>${escHtml(f.model)}</b></div>` : ""}
         <div class="fld"><span class="lab"${t("bt5phy")}>BT5 PHY / long range</span><b>${f.bt5phy} / ${f.longrange}</b></div>
         <div class="fld"><span class="lab"${t("adv_crypto")}>Encrypted beacon</span><b>${f.adv_crypto}</b></div>
-        <div class="fld"><span class="lab"${t("raw")}>Raw (11 B)</span><b>${f.raw}</b></div>
+        <div class="fld"><span class="lab"${t("raw")}>Raw (11 B)</span><b>${escHtml(f.raw)}</b></div>
       </div>
       <div class="advzone" id="risk-note" style="display:none"></div>`;
 
@@ -841,7 +859,7 @@ class TelinkManagerPanel extends HTMLElement {
       h_lo: f.comfort_h_lo != null ? f.comfort_h_lo : 40,
       h_hi: f.comfort_h_hi != null ? f.comfort_h_hi : 60,
     };
-    const esc = (s) => String(s == null ? "" : s).replace(/"/g, "&quot;");
+    const esc = escHtml;
     this.querySelector("#m-body").innerHTML = `
       <h3>Device name <span class="lab"${t("device_name")} style="width:auto">(stored on the device)</span></h3>
       <div class="muted">Different from the Friendly name (which is only a local label here). Empty = factory default.</div>
@@ -932,7 +950,7 @@ class TelinkManagerPanel extends HTMLElement {
       const name = this.querySelector("#dname").value;
       const r = await this._runCmd("Setting device name…",
         { type: "telink_manager/set_device_name", mac, name },
-        (r) => `✅ Device name set: ${r.device_name || "(default)"}`);
+        (r) => `✅ Device name set: ${escHtml(r.device_name) || "(default)"}`);
       if (r && r.ok) { this._loaded.device_name = r.device_name; this._autoBackup(mac); }
     };
     this.querySelector("#c-comfort").onclick = async () => {
@@ -1012,7 +1030,7 @@ class TelinkManagerPanel extends HTMLElement {
         { okText: "Send", danger: true }))) return;
       const r = await this._runCmd("Sending raw command…",
         { type: "telink_manager/raw", mac, hex, expect_reply },
-        (res) => `✅ Sent ${res.sent}${res.reply ? " · reply " + res.reply : ""}`);
+        (res) => `✅ Sent ${escHtml(res.sent)}${res.reply ? " · reply " + escHtml(res.reply) : ""}`);
       if (out) out.textContent = r ? (r.ok ? (r.reply || "(no reply)") : (r.error || "failed")) : "(cancelled)";
     };
 
@@ -1029,7 +1047,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#c-mac-read").onclick = async () => {
       const r = await this._runCmd("Reading MAC…",
         { type: "telink_manager/get_mac", mac },
-        (r) => `✅ Stored MAC: ${r.device_mac || "(unknown)"}`);
+        (r) => `✅ Stored MAC: ${escHtml(r.device_mac) || "(unknown)"}`);
       if (r && r.ok && r.device_mac) macInput.value = r.device_mac;
     };
     this.querySelector("#c-mac-set").onclick = async () => {
@@ -1039,13 +1057,13 @@ class TelinkManagerPanel extends HTMLElement {
         { okText: "Set MAC", danger: true }))) return;
       await this._runCmd("Setting MAC…",
         { type: "telink_manager/set_mac", mac, new_mac: newMac },
-        (r) => `✅ MAC set to ${r.device_mac}. It takes effect now (the device reboots as the link drops); ` +
+        (r) => `✅ MAC set to ${escHtml(r.device_mac)}. It takes effect now (the device reboots as the link drops); ` +
                `HA will see it as a NEW device — close and Scan again to find it under the new MAC.`);
     };
     this.querySelector("#c-bk-read").onclick = async () => {
       const r = await this._runCmd("Reading bind key…",
         { type: "telink_manager/get_bind_key", mac },
-        (r) => `✅ Bind key: ${r.bind_key || "(not returned by firmware)"}`);
+        (r) => `✅ Bind key: ${escHtml(r.bind_key) || "(not returned by firmware)"}`);
       if (r && r.ok && r.bind_key) this.querySelector("#bk-new").value = r.bind_key;
     };
     this.querySelector("#c-bk-rand").onclick = () => {
@@ -1311,8 +1329,8 @@ class TelinkManagerPanel extends HTMLElement {
     const ble = dev && dev.name ? dev.name : "";
     const name = this._names[mac] || ble || mac;
     const sub = [ble && ble !== name ? ble : "", mac].filter(Boolean).join(" · ");
-    return `${icon ? icon + " " : ""}<b>${name}</b>` +
-      (sub ? ` <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color,#999)">${sub}</span>` : "");
+    return `${icon ? icon + " " : ""}<b>${escHtml(name)}</b>` +
+      (sub ? ` <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color,#999)">${escHtml(sub)}</span>` : "");
   }
 
   // ===== Read all (bulk read): connect to many devices, parallel by proxy, back each up =====
@@ -1357,7 +1375,7 @@ class TelinkManagerPanel extends HTMLElement {
       const name = this._names[d.mac] || d.name || d.mac;
       return `<tr style="${disabled ? "opacity:.5" : ""}">
         <td style="text-align:center"><input type="checkbox" class="ra-pick" data-mac="${d.mac}" ${sel.has(d.mac) ? "checked" : ""} ${disabled ? "disabled" : ""}></td>
-        <td style="text-align:left;white-space:nowrap">${name}</td>
+        <td style="text-align:left;white-space:nowrap">${escHtml(name)}</td>
         <td style="white-space:nowrap">${this._rssiCell(d.rssi)}</td>
         <td>${nbk ? `<span style="color:#4caf50">●${nbk}</span>` : `<span style="color:#e53935">●</span>`}</td>
         <td style="text-align:left;color:${disabled ? "var(--tm-text-2,#9aa0a6)" : sig.color};font-size:12px;white-space:nowrap">${disabled ? "not connectable" : sig.lab}</td>
@@ -1492,7 +1510,7 @@ class TelinkManagerPanel extends HTMLElement {
       const sig = this._signalOf(d.rssi);
       const hint = (sig.tier === "bad" || sig.tier === "weak") ? " → move it or a BLE proxy closer"
         : (f.error === "timeout" ? " → timed out" : "");
-      return `<tr><td style="text-align:left">${name}</td><td>${this._rssiCell(d.rssi)}</td><td style="text-align:left;color:#ff7a7a">${f.error}${hint}</td></tr>`;
+      return `<tr><td style="text-align:left">${escHtml(name)}</td><td>${this._rssiCell(d.rssi)}</td><td style="text-align:left;color:#ff7a7a">${escHtml(f.error)}${hint}</td></tr>`;
     }).join("");
     const hasFail = s.failures && s.failures.length;
     this.querySelector("#m-body").innerHTML = `
@@ -1695,10 +1713,10 @@ class TelinkManagerPanel extends HTMLElement {
       const tds = cols.map((c, i) => {
         const v = val(c, r);
         if (i === 0) {
-          return `<td style="position:sticky;left:${friendlyLeft};background:${BG};font-weight:600;white-space:nowrap;text-align:left">${v || "—"}</td>`;
+          return `<td style="position:sticky;left:${friendlyLeft};background:${BG};font-weight:600;white-space:nowrap;text-align:left">${escHtml(v) || "—"}</td>`;
         }
         const bg = (c.cmp && !c._uniform && v !== "") ? `background:hsl(${(c._distinct.indexOf(v) * 67) % 360} 45% 22%);` : "";
-        return `<td style="${bg}white-space:nowrap">${v || "—"}</td>`;
+        return `<td style="${bg}white-space:nowrap">${escHtml(v) || "—"}</td>`;
       }).join("");
       return `<tr>${ctrlTds}${tds}</tr>`;
     }).join("");
@@ -1816,8 +1834,8 @@ class TelinkManagerPanel extends HTMLElement {
     const rows = devs.map((d) => {
       const fr = d.friendly_name || "", dn = d.device_name || "";
       return `<div class="fld bkdev" data-mac="${d.mac}" style="cursor:pointer;justify-content:space-between;border-bottom:1px solid var(--divider-color,#333)">
-        <div><b>${fr || dn || d.mac}</b>${fr && dn ? ` <span class="muted">· ${dn}</span>` : ""}
-          <div class="muted" style="font-size:11px">${d.mac} · ${d.count} backup${d.count > 1 ? "s" : ""}</div></div>
+        <div><b>${escHtml(fr || dn || d.mac)}</b>${fr && dn ? ` <span class="muted">· ${escHtml(dn)}</span>` : ""}
+          <div class="muted" style="font-size:11px">${escHtml(d.mac)} · ${d.count} backup${d.count > 1 ? "s" : ""}</div></div>
         <div style="white-space:nowrap;display:flex;align-items:center;gap:8px">
           <button class="bk-hist ghost" data-mac="${d.mac}" style="padding:2px 8px" title="History — what changed over time">📊 History</button>
           <span class="muted">${this._bkTs(d.last_ts)} ›</span></div>
@@ -1922,7 +1940,7 @@ class TelinkManagerPanel extends HTMLElement {
         const fr = this._names[d.mac] || "", ble = d.name || d.mac;
         return { mac: d.mac, label: fr ? `${fr} - ${ble} (${d.mac})` : `${ble} (${d.mac})` };
       }).sort((a, b) => a.label.localeCompare(b.label));
-      const opts = optData.map((o) => `<option value="${o.mac}">${o.label}</option>`).join("");
+      const opts = optData.map((o) => `<option value="${escHtml(o.mac)}">${escHtml(o.label)}</option>`).join("");
       targetCtrl = `<div class="fld"><span class="lab">Clone to device</span>
         <select id="rs-target" style="max-width:340px">
           <option value="" disabled selected>Select a device to clone to…</option>${opts}</select>
