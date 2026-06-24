@@ -40,7 +40,9 @@ jobs:
             pytest \
             pytest-asyncio \
             pytest-cov \
-            pytest-homeassistant-custom-component
+            pytest-homeassistant-custom-component \
+            bleak-retry-connector \
+            pyserial
       - name: Run tests with coverage
         run: |
           pytest tests/ \
