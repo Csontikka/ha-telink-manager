@@ -118,3 +118,54 @@ def test_build_legacy_offsets():
     out = pvvx_struct.parse(new, fw=0x40)
     assert out["temp_offset_c"] == -1.0
     assert out["humi_offset_pct"] == 2.0
+
+
+def test_build_all_bitflags_roundtrip():
+    changes = {
+        "comfort_smiley": True, "blinking_time_smile": True, "temp_F": True,
+        "show_batt": True, "tx_measures": True, "lp_measures": True,
+        "adv_flags": True, "screen_off": True, "smiley": 5, "adv_type_raw": 1,
+    }
+    out = pvvx_struct.parse(pvvx_struct.build(MODERN, changes, fw=FW_MODERN), fw=FW_MODERN)
+    assert out["comfort_smiley"] and out["blinking_time_smile"] and out["temp_F"]
+    assert out["show_batt"] and out["tx_measures"] and out["lp_measures"]
+    assert out["adv_flags"] and out["screen_off"]
+    assert out["smiley"] == 5
+    assert out["adv_type"] == "pvvx" and out["adv_type_raw"] == 1
+
+
+def test_build_clear_bitflag():
+    # MODERN has show_batt set; clearing it must unset the bit.
+    out = pvvx_struct.parse(pvvx_struct.build(MODERN, {"show_batt": False}, fw=FW_MODERN), fw=FW_MODERN)
+    assert out["show_batt"] is False
+
+
+def test_build_all_numeric_roundtrip():
+    changes = {
+        "rf_tx_power": 7, "connect_latency_raw": 4, "lcd_refresh_raw": 50,
+        "averaging": 30, "measure_interval": 10, "event_adv_cnt": 12,
+    }
+    out = pvvx_struct.parse(pvvx_struct.build(MODERN, changes, fw=FW_MODERN), fw=FW_MODERN)
+    assert out["rf_tx_power"] == 7
+    assert out["connect_latency_raw"] == 4
+    assert out["lcd_refresh_raw"] == 50
+    assert out["averaging"] == 30
+    assert out["measure_interval"] == 10
+    assert out["event_adv_cnt"] == 12
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"measure_interval": 0},
+        {"event_adv_cnt": 256},
+        {"rf_tx_power": 300},
+        {"connect_latency_raw": -1},
+        {"averaging": 256},
+        {"humi_offset_pct": -99.0},  # legacy guard
+    ],
+)
+def test_build_more_validation_errors(changes):
+    fw = 0x40 if "humi_offset_pct" in changes else FW_MODERN
+    with pytest.raises(ValueError):
+        pvvx_struct.build(MODERN, changes, fw=fw)
