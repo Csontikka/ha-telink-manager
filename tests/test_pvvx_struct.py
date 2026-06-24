@@ -122,9 +122,16 @@ def test_build_legacy_offsets():
 
 def test_build_all_bitflags_roundtrip():
     changes = {
-        "comfort_smiley": True, "blinking_time_smile": True, "temp_F": True,
-        "show_batt": True, "tx_measures": True, "lp_measures": True,
-        "adv_flags": True, "screen_off": True, "smiley": 5, "adv_type_raw": 1,
+        "comfort_smiley": True,
+        "blinking_time_smile": True,
+        "temp_F": True,
+        "show_batt": True,
+        "tx_measures": True,
+        "lp_measures": True,
+        "adv_flags": True,
+        "screen_off": True,
+        "smiley": 5,
+        "adv_type_raw": 1,
     }
     out = pvvx_struct.parse(pvvx_struct.build(MODERN, changes, fw=FW_MODERN), fw=FW_MODERN)
     assert out["comfort_smiley"] and out["blinking_time_smile"] and out["temp_F"]
@@ -142,8 +149,12 @@ def test_build_clear_bitflag():
 
 def test_build_all_numeric_roundtrip():
     changes = {
-        "rf_tx_power": 7, "connect_latency_raw": 4, "lcd_refresh_raw": 50,
-        "averaging": 30, "measure_interval": 10, "event_adv_cnt": 12,
+        "rf_tx_power": 7,
+        "connect_latency_raw": 4,
+        "lcd_refresh_raw": 50,
+        "averaging": 30,
+        "measure_interval": 10,
+        "event_adv_cnt": 12,
     }
     out = pvvx_struct.parse(pvvx_struct.build(MODERN, changes, fw=FW_MODERN), fw=FW_MODERN)
     assert out["rf_tx_power"] == 7
