@@ -1,8 +1,7 @@
 name: Check for PR merge conflicts
 
 on:
-  push:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:
