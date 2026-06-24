@@ -1,0 +1,27 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release_zip:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Zip telink_manager dir
+        run: |
+          cd ${{ github.workspace }}/custom_components/telink_manager
+          zip telink_manager.zip -r ./
+      - name: Upload zip to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ github.workspace }}/custom_components/telink_manager/telink_manager.zip
+          asset_name: telink_manager.zip
+          tag: ${{ github.ref }}
+          overwrite: true

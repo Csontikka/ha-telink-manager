@@ -1,0 +1,17 @@
+[run]
+source = custom_components/telink_manager
+
+# BLE-, WebSocket- and HA-runtime-bound modules need a live Bluetooth proxy / running HA to
+# exercise meaningfully; they are validated on the live DEV instance, not in unit tests.
+omit =
+    custom_components/telink_manager/gatt.py
+    custom_components/telink_manager/bulk.py
+    custom_components/telink_manager/websocket_api.py
+    custom_components/telink_manager/backups.py
+    custom_components/telink_manager/__init__.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError

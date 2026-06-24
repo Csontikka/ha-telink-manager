@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Secrets / credentials (NEVER commit)
+.env
+.env.*
+secrets.yaml
+credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Dev / credentialed utility scripts (contain tokens, IPs, SMB creds)
+deploy.py
+create_repo.py
+check_*.py
+setup_*.py
+screenshot_*.py
+mask_*.py
+_dev_*.py
+_pw_*.png
+
+# Internal working files (handoff doc, memory copies, dev tests, logo candidates, screenshots)
+# Root-anchored so it never matches nested files like custom_components/**/__init__.py
+/_*
+
+# Tooling / agent state
+.claude/
+.omc/
+
+# OS
+.DS_Store
+Thumbs.db
