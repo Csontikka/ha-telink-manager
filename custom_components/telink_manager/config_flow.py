@@ -25,9 +25,3 @@ class TelinkManagerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             return self.async_create_entry(title=PANEL_TITLE, data={})
         return self.async_show_form(step_id="user")
-
-    async def async_step_import(self, import_data: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Migrate the legacy ``telink_manager:`` YAML setup to a config entry."""
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
-        return self.async_create_entry(title=PANEL_TITLE, data={})

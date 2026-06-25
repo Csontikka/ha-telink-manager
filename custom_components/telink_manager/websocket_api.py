@@ -306,12 +306,12 @@ async def ws_backups_list(hass: HomeAssistant, connection, msg):
     {
         vol.Required("type"): "telink_manager/backup_delete",
         vol.Required("mac"): str,
-        vol.Required("ts"): vol.Coerce(int),
+        vol.Required("backup_id"): str,
     }
 )
 @websocket_api.async_response
 async def ws_backup_delete(hass: HomeAssistant, connection, msg):
-    connection.send_result(msg["id"], await backups.async_delete(hass, msg["mac"], msg["ts"]))
+    connection.send_result(msg["id"], await backups.async_delete(hass, msg["mac"], msg["backup_id"]))
 
 
 @websocket_api.require_admin

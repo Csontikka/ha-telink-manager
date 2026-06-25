@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -25,6 +26,16 @@ async def async_setup(hass: HomeAssistant) -> None:
     """Load the backup store into hass.data[DOMAIN]."""
     store = Store(hass, STORAGE_VERSION, BACKUP_STORAGE_KEY)
     data = await store.async_load() or {}
+    # Backfill a stable unique id onto any pre-existing snapshot that lacks one (older stores keyed
+    # deletes by timestamp, which can collide within a second). Persist once if anything changed.
+    changed = False
+    for snaps in data.values():
+        for snap in snaps:
+            if not snap.get("id"):
+                snap["id"] = uuid.uuid4().hex
+                changed = True
+    if changed:
+        await store.async_save(data)
     hass.data[DOMAIN]["backup_store"] = store
     hass.data[DOMAIN]["backups"] = data
 
@@ -50,6 +61,7 @@ def snapshot_from_fields(hass: HomeAssistant, mac: str, fields: dict) -> dict:
             "h_offset_pct": fields["h_offset_pct"],
         }
     return {
+        "id": uuid.uuid4().hex,  # stable unique key for delete (ts can collide within one second)
         "ts": int(time.time()),
         "mac": mac,
         "friendly_name": names.get(mac, ""),
@@ -196,12 +208,12 @@ async def async_save(hass: HomeAssistant, snapshot: dict) -> dict:
     return {"ok": True, "deduped": False, "count": len(lst)}
 
 
-async def async_delete(hass: HomeAssistant, mac: str, ts: int) -> dict:
-    """Delete the snapshot with the given timestamp for a MAC."""
+async def async_delete(hass: HomeAssistant, mac: str, snap_id: str) -> dict:
+    """Delete the snapshot with the given unique id for a MAC."""
     mac = mac.upper()
     backups = hass.data[DOMAIN].setdefault("backups", {})
     lst = backups.get(mac, [])
-    new = [s for s in lst if s.get("ts") != ts]
+    new = [s for s in lst if s.get("id") != snap_id]
     backups[mac] = new
     store = hass.data[DOMAIN].get("backup_store")
     if store is not None:

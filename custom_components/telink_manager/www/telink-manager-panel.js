@@ -1470,11 +1470,17 @@ class TelinkManagerPanel extends HTMLElement {
     const rd = this.querySelector("#read"); if (rd) rd.disabled = !!st.active || this._readDisabled();
     // show the result once on whichever panel is live, then dismiss it server-side
     if (!st.active && st.result && !this._bulkResultShown) {
-      this._bulkResultShown = true;
       const res = st.result;
       this._status(`Read all ${res.cancelled ? "cancelled" : "done"}: ✓${res.ok} read, ✗${res.fail} failed.`);
-      this._ws({ type: "telink_manager/bulk_dismiss" }).catch(() => {});
-      this._showReadAllResult(res, res.cancelled);
+      // Show the result FIRST; only mark it shown + dismiss server-side if rendering succeeded, so a
+      // render error can't silently lose the result — a later poll/panel will retry showing it.
+      try {
+        this._showReadAllResult(res, res.cancelled);
+        this._bulkResultShown = true;
+        this._ws({ type: "telink_manager/bulk_dismiss" }).catch(() => {});
+      } catch (e) {
+        /* keep the result on the server for a retry */
+      }
     }
     if (!st.active && (!st.result || this._bulkResultShown)) this._stopBulkPolling();
   }
@@ -1902,7 +1908,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelectorAll(".bk-del").forEach((b) => b.onclick = async () => {
       const s = list[+b.dataset.i];
       if (!(await this._confirm("Delete this backup?", { okText: "Delete", danger: true }))) return;
-      const r = await this._ws({ type: "telink_manager/backup_delete", mac, ts: s.ts }).catch(() => null);
+      const r = await this._ws({ type: "telink_manager/backup_delete", mac, backup_id: s.id }).catch(() => null);
       // Keep the main-page Backup count in sync with the new total.
       if (r && typeof r.count === "number") { this._backupMacs.set(mac, r.count); this._renderDevTable(); }
       this._backupsForDevice(mac);

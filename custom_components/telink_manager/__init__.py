@@ -5,13 +5,11 @@ from __future__ import annotations
 import logging
 import os
 
-import homeassistant.helpers.config_validation as cv
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.typing import ConfigType
 
 from . import backups, websocket_api
 from .const import (
@@ -25,16 +23,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Panel-only integration: accept an empty `telink_manager:` YAML block (legacy) but take no options.
-CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
-
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Migrate a legacy ``telink_manager:`` YAML setup into a config entry (one-time)."""
-    if DOMAIN in config and not hass.config_entries.async_entries(DOMAIN):
-        hass.async_create_task(hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IMPORT}, data={}))
-    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

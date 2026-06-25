@@ -404,10 +404,13 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 return {"ok": True, "mac": mac, "fields": fields}
             except Exception as e:  # noqa: BLE001
                 last_err = repr(e)
-                _LOGGER.warning("PVVX read error %s: %s", mac, last_err)
+                # Per-attempt failures are routine over BLE proxies (out of range / busy); log at
+                # debug to avoid spamming the log during bulk reads. Final failure logged below.
+                _LOGGER.debug("PVVX read attempt failed %s: %s", mac, last_err)
             finally:
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
+    _LOGGER.warning("PVVX read failed for %s after retries: %s", mac, last_err)
     return {"ok": False, "mac": mac, "error": last_err}
 
 
@@ -467,10 +470,11 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
             }
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
-            _LOGGER.warning("PVVX write error %s: %s", mac, last_err)
+            _LOGGER.debug("PVVX write attempt failed %s: %s", mac, last_err)
         finally:
             await _safe_disconnect(client)
         await asyncio.sleep(4)
+    _LOGGER.warning("PVVX write failed for %s after retries: %s", mac, last_err)
     return {"ok": False, "mac": mac, "error": last_err}
 
 
@@ -495,10 +499,11 @@ async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -
             return await fn(client)
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
-            _LOGGER.warning("PVVX cmd error %s: %s", mac, last_err)
+            _LOGGER.debug("PVVX cmd attempt failed %s: %s", mac, last_err)
         finally:
             await _safe_disconnect(client)
         await asyncio.sleep(4)
+    _LOGGER.warning("PVVX cmd failed for %s after retries: %s", mac, last_err)
     return {"ok": False, "mac": mac, "error": last_err}
 
 
