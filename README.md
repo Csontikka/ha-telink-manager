@@ -1,6 +1,6 @@
 # Telink Manager — Home Assistant Integration
 
-![Telink Manager](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/banner.png)
+![Telink Manager](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/banner-v2.png)
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Csontikka/ha-telink-manager?style=plastic)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)

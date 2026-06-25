@@ -1,14 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 280" width="1000" height="280">
-  <rect width="1000" height="280" rx="28" fill="#0d2a40"/>
-  <rect width="1000" height="280" rx="28" fill="url(#g)" opacity="0.35"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 260" width="1000" height="260">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1a6ea8"/>
-      <stop offset="1" stop-color="#0d2a40"/>
-    </linearGradient>
+    <radialGradient id="glow" cx="0.14" cy="0.5" r="0.72">
+      <stop offset="0" stop-color="#1c5a86"/>
+      <stop offset="0.62" stop-color="#0c1c28"/>
+      <stop offset="1" stop-color="#0a1822"/>
+    </radialGradient>
   </defs>
-  <!-- badge (scaled icon, centered vertically) -->
-  <g transform="translate(60,28) scale(0.4297)">
+  <rect width="1000" height="260" rx="22" fill="#0a1822"/>
+  <rect width="1000" height="260" rx="22" fill="url(#glow)"/>
+
+  <!-- badge (icon), centered vertically; scaled from the 512 viewBox -->
+  <g transform="translate(46,71) scale(0.2305)">
     <circle cx="256" cy="256" r="248" fill="#1a6ea8" opacity="0.18"/>
     <circle cx="256" cy="256" r="216" fill="#1a6ea8"/>
     <circle cx="256" cy="256" r="216" fill="none" stroke="#2ea8d8" stroke-width="10" opacity="0.9"/>
@@ -21,6 +23,7 @@
     <line x1="288" y1="230" x2="312" y2="230" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
     <line x1="288" y1="265" x2="312" y2="265" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
   </g>
-  <text x="290" y="140" font-family="Segoe UI, Arial, sans-serif" font-size="62" font-weight="700" fill="#ffffff">Telink Manager</text>
-  <text x="292" y="190" font-family="Segoe UI, Arial, sans-serif" font-size="27" font-weight="400" fill="#9fc7e4">Manage PVVX/ATC BLE thermometers from Home Assistant</text>
+
+  <text x="196" y="126" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700" fill="#ffffff">Telink Manager</text>
+  <text x="198" y="166" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="400" fill="#9fc7e4">Manage PVVX/ATC-firmware BLE thermometers from Home Assistant</text>
 </svg>
