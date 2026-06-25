@@ -107,6 +107,12 @@ logger:
 
 This logs every BLE connection attempt, which proxy was chosen, and the raw bytes exchanged with each device.
 
+## Privacy & telemetry
+
+Telink Manager collects **no telemetry and never phones home**. It runs entirely inside your Home Assistant instance: it talks only to your thermometers (over your own Bluetooth proxies) and stores friendly names and backups in your local HA storage. No usage data, device identifiers (including BLE MAC addresses), or analytics are sent to the developer or any third party.
+
+The only place this integration ever appears in any statistics is Home Assistant's own [Analytics](https://www.home-assistant.io/integrations/analytics/), which is **opt-in**, anonymized and aggregated. If you have enabled HA Analytics, this integration's name and version are included — exactly like every other custom integration — and show up only as anonymous totals on the public [analytics dashboard](https://analytics.home-assistant.io/integrations/). You can turn it off at any time in **Settings → System → Analytics**.
+
 ## Support
 
 Found a bug or have an idea? [Open an issue](https://github.com/Csontikka/ha-telink-manager/issues) — feedback and feature requests are welcome.
