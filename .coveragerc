@@ -9,7 +9,6 @@ omit =
     custom_components/telink_manager/websocket_api.py
     custom_components/telink_manager/backups.py
     custom_components/telink_manager/__init__.py
-    custom_components/telink_manager/config_flow.py
 
 [report]
 exclude_lines =

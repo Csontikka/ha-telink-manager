@@ -19,9 +19,9 @@ class TelinkManagerConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Handle the user-initiated step (a simple confirmation)."""
-        if self._async_current_entries():
-            return self.async_abort(reason="single_instance_allowed")
+        """Show a one-time confirmation, then create the single config entry."""
+        # ponytail: single_config_entry (manifest) aborts a 2nd add with single_instance_allowed
+        # before this step runs, so no in-flow duplicate guard is needed here.
         if user_input is not None:
             return self.async_create_entry(title=PANEL_TITLE, data={})
         return self.async_show_form(step_id="user")
