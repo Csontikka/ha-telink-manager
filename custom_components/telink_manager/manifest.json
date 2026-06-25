@@ -4,7 +4,7 @@
   "after_dependencies": ["bluetooth"],
   "codeowners": ["@Csontikka"],
   "config_flow": true,
-  "dependencies": ["panel_custom"],
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
   "documentation": "https://github.com/Csontikka/ha-telink-manager",
   "integration_type": "service",
   "iot_class": "local_push",
