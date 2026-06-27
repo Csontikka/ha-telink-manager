@@ -167,14 +167,19 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
             continue
         proxy = _best_proxy(hass, addr)
         batt = _battery_from_adv(si)
+        connectable = proxy is not None
+        proxy_rssi = (proxy or {}).get("rssi")
         out.append(
             {
                 "mac": addr,
                 "name": si.name,
-                "rssi": si.rssi,
-                "connectable": proxy is not None,
+                # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
+                # is reachable, else the advertisement signal. This keeps RSSI consistent with the
+                # Route (both describe the connectable path), so the weak-signal warning reflects the
+                # link the connection will actually use — not a stronger passive-only sighting.
+                "rssi": proxy_rssi if (connectable and proxy_rssi is not None) else si.rssi,
+                "connectable": connectable,
                 "proxy": (proxy or {}).get("name"),
-                "proxy_rssi": (proxy or {}).get("rssi"),
                 "battery": batt["battery"],
                 "battery_v": batt["battery_v"],
                 "battery_src": batt["battery_src"],

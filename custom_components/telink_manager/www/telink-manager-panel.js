@@ -499,6 +499,22 @@ class TelinkManagerPanel extends HTMLElement {
     // so connecting to a DIFFERENT device while one is still finishing is allowed.
     if (this._busy || this._bulkActiveNow() || !this._selected || this._inflightMacs.has(this._selected)) return;
     const mac = this._selected;
+    // Not reachable by a connectable proxy (only seen via advertisements)? Explain it up front
+    // instead of retrying blindly into a no_connectable failure. BLE state is dynamic, so still
+    // allow a try.
+    const dev = (this._devs || []).find((d) => d.mac === mac);
+    if (dev && dev.connectable === false) {
+      const proceed = await this._confirm(
+        `${mac} is only seen via advertisements right now — no Bluetooth proxy can open an ` +
+          `active connection to it.\n\nMake sure a proxy with active connections ` +
+          `(ESPHome "bluetooth_proxy: active: true") is in range. BLE state changes, so you can ` +
+          `still try.\n\nTry to connect anyway?`,
+        { okText: "Try anyway", cancelText: "Cancel" });
+      if (!proceed) {
+        this._status(`${mac} isn't reachable by a connectable proxy. Bring an active proxy closer and Scan again.`);
+        return;
+      }
+    }
     const sig = this._rssiInfo(this._selectedRssi);
     if (this._selectedRssi != null && sig.tier !== "ok") {
       const bad = sig.tier === "bad";
