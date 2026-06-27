@@ -121,4 +121,9 @@ If you find this integration useful, consider [buying me a coffee](https://buyme
 
 ## Credits
 
-Built on the excellent reverse-engineering work of the [pvvx/ATC_MiThermometer](https://github.com/pvvx/ATC_MiThermometer) firmware project. This integration is not affiliated with Telink, Xiaomi or the PVVX project.
+Built on the excellent open-firmware work that makes these thermometers configurable:
+
+- [pvvx/ATC_MiThermometer](https://github.com/pvvx/ATC_MiThermometer) — the PVVX firmware and the BLE configuration protocol this integration speaks to, released under a permissive (no-restriction) license.
+- [Aaron Christophel (atc1441)](https://github.com/atc1441/ATC_MiThermometer) — the original ATC custom firmware and advertising format that opened up these devices in the first place.
+
+This integration is an independent client for that firmware: it does not include or redistribute the firmware itself, and is not affiliated with Telink, Xiaomi, pvvx or atc1441.
