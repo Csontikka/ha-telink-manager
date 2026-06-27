@@ -9,7 +9,7 @@
 
 > **Note:** For the best viewing experience, read this documentation on [GitHub](https://github.com/Csontikka/ha-telink-manager).
 
-A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome / Shelly Bluetooth proxies** — no extra hardware, no cloud, no separate app.
+A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome / Shelly Bluetooth proxies** (or a local Bluetooth adapter) — no extra hardware, no cloud, no separate app.
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
@@ -33,19 +33,19 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 **Main panel** — scan results with friendly names, RSSI, battery and per-device actions:
 
-![Telink Manager panel](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_scan.png)
+![Telink Manager panel](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_scan_v017.png)
 
 **Device configuration** — read and edit the full PVVX configuration (display, measurement, advertising):
 
-![Device configuration](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_config.png)
+![Device configuration](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_config_v017.png)
 
 **Compare** — every device's settings side by side, differences highlighted (from snapshots, no connection):
 
-![Cross-device compare matrix](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_compare.png)
+![Cross-device compare matrix](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_compare_v017.png)
 
 **Snapshots** — each device's history as a change matrix; expand a device to see every snapshot and what changed over time, with restore, clone and delete on each row (no connection needed):
 
-![Per-device snapshots and history](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_backups.png)
+![Per-device snapshots and history](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_snapshots_v017.png)
 
 ## Requirements
 
