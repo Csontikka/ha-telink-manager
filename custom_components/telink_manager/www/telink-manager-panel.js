@@ -191,6 +191,19 @@ class TelinkManagerPanel extends HTMLElement {
         .adopt svg { width: 15px; height: 15px; fill: currentColor; display: block; }
         .bk-dot { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
         .bk-dot:hover { text-decoration-style: solid; }
+        /* Snapshots accordion */
+        .snap-dev { border-bottom: 1px solid var(--tm-border); }
+        .snap-dev-head { display: flex; align-items: center; gap: 10px; padding: 9px 4px; cursor: pointer; transition: background .12s; }
+        .snap-dev-head:hover { background: var(--tm-bg-2); }
+        .snap-chev { display: inline-block; width: 12px; text-align: center; flex: 0 0 auto;
+          color: var(--tm-text-2); transition: transform .15s; }
+        .snap-dev.open .snap-chev { transform: rotate(90deg); }
+        .snap-dev-body { padding: 2px 2px 12px 24px; }
+        .snap-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+        .snap-tab { font-size: 12px; padding: 3px 11px; }
+        .snap-row { display: flex; align-items: center; justify-content: space-between;
+          padding: 6px 2px; border-bottom: 1px solid var(--tm-border); font-size: 13px; }
+        .snap-row:last-child { border-bottom: none; }
         .ro .lab { color: #888; } .ro b { color: #bbb; }
         .muted { color: var(--tm-text-2); font-size: 12px; }
         .warn { color: #ff7a7a; font-size: 12px; }
@@ -237,8 +250,8 @@ class TelinkManagerPanel extends HTMLElement {
             <button id="cancel" class="cancel" style="display:none">Cancel</button>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
-            <button id="compare-btn" class="ghost" title="Compare all sensors' settings side by side (from backups, no connection)">📊 Compare</button>
-            <button id="backups-btn" class="ghost" title="Saved backups for all devices (no connection needed)">🗄️ Backups</button>
+            <button id="compare-btn" class="ghost" title="Compare all sensors' settings side by side (from snapshots, no connection)">📊 Compare</button>
+            <button id="backups-btn" class="ghost" title="Every device's saved snapshots and history (no connection needed)">🗄️ Snapshots</button>
             <button id="readall-btn" class="ghost" title="Connect to many devices in one go and back them up (parallel by proxy)">📖 Read all</button>
             <button id="scan">Scan</button>
           </div>
@@ -251,7 +264,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#scan").onclick = () => this._scan();
     this.querySelector("#read").onclick = () => this._readSelected();
     this.querySelector("#cancel").onclick = () => this._cancel();
-    this.querySelector("#backups-btn").onclick = () => this._openBackupsModal();
+    this.querySelector("#backups-btn").onclick = () => this._openSnapshotsModal();
     this.querySelector("#compare-btn").onclick = () => this._openCompareModal();
     this.querySelector("#readall-btn").onclick = () => this._openReadAllDialog();
     this._maybeAutoScan();
@@ -389,11 +402,11 @@ class TelinkManagerPanel extends HTMLElement {
     }
   }
 
-  // Backup column cell: green "● N" (click → that device's backups) if it has any, red dot if none.
+  // History column cell: green "● N" (click → this device's history) if it has snapshots, red dot if none.
   _backupCell(mac) {
     const n = this._backupMacs && this._backupMacs.get(mac);
-    if (n) return `<span class="bk-dot" data-mac="${mac}" style="cursor:pointer;color:#4caf50;font-weight:600" title="${n} backup(s) — click to view this device's backups">● ${n}</span>`;
-    return `<span class="bk-dot-empty dot" data-mac="${mac}" style="background:#e53935;cursor:pointer" title="No backup yet — click to connect and create the first one"></span>`;
+    if (n) return `<span class="bk-dot" data-mac="${mac}" style="cursor:pointer;color:#4caf50;font-weight:600" title="${n} snapshot${n > 1 ? "s" : ""} — click to open this device's history">● ${n}</span>`;
+    return `<span class="bk-dot-empty dot" data-mac="${mac}" style="background:#e53935;cursor:pointer" title="No snapshot yet — click to connect and create the first one"></span>`;
   }
 
   // Battery from the advertisement (no connection). Some devices broadcast % directly (BTHome obj
@@ -417,10 +430,9 @@ class TelinkManagerPanel extends HTMLElement {
     return `<span title="${tip}" style="color:${color};font-weight:600">${b.est ? "~" : ""}${b.pct}%</span>`;
   }
 
-  // Open ONE device's backups directly (from the scan list), not the global device picker.
+  // From the scan list: open the Snapshots view with this one device already expanded.
   _openDeviceBackups(mac) {
-    this._modalShell("🗄️ Backups");
-    this._backupsForDevice(mac);
+    this._openSnapshotsModal({ expand: mac });
   }
 
   _sortBy(key) {
@@ -449,7 +461,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#list").innerHTML = `
       <table><thead><tr>
         <th></th>${th("friendly", "Friendly name")}${th("name", "BLE name")}${th("mac", "MAC")}
-        ${th("rssi", "RSSI")}${th("proxy", "Route")}${th("battery", "Battery")}${th("backup", "Backup")}
+        ${th("rssi", "RSSI")}${th("proxy", "Route")}${th("battery", "Battery")}${th("backup", "History")}
       </tr></thead>
       <tbody>${devs.map(d => `
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
@@ -472,8 +484,8 @@ class TelinkManagerPanel extends HTMLElement {
     });
     this.querySelectorAll(".bk-dot").forEach((el) =>
       el.onclick = (e) => { e.stopPropagation(); this._openDeviceBackups(el.dataset.mac); });
-    // No backup yet: don't drop into an empty screen — ask to connect first; a successful read
-    // creates the first backup, then we land on this device's backups screen.
+    // No snapshot yet: don't drop into an empty screen — ask to connect first; a successful read
+    // creates the first snapshot, then we land on this device's history screen.
     this.querySelectorAll(".bk-dot-empty").forEach((el) =>
       el.onclick = async (e) => {
         e.stopPropagation();
@@ -481,7 +493,7 @@ class TelinkManagerPanel extends HTMLElement {
         const tr = this.querySelector(`tr.dev[data-mac="${mac}"]`);
         if (tr) this._select(tr);
         const ok = await this._confirm(
-          `This device has no backups yet.\n\nTo create one, connect to it now — its current settings will be read and saved as the first backup.`,
+          `This device has no snapshots yet.\n\nTo create one, connect to it now — its current settings will be read and saved as the first snapshot.`,
           { okText: "Connect", cancelText: "Cancel" });
         if (ok) this._readSelected({ thenBackups: true });
       });
@@ -1403,7 +1415,7 @@ class TelinkManagerPanel extends HTMLElement {
     (this._devs || []).forEach((d) => {
       if (!d.connectable) return;                          // can't read a non-connectable device
       if (d.rssi != null && d.rssi < threshold) return;    // below the skip threshold
-      if (preset === "nobk" && (this._backupMacs.get(d.mac) || 0) > 0) return;  // already has a backup
+      if (preset === "nobk" && (this._backupMacs.get(d.mac) || 0) > 0) return;  // already has a snapshot
       sel.add(d.mac);
     });
     return sel;
@@ -1442,14 +1454,14 @@ class TelinkManagerPanel extends HTMLElement {
     const belowTh = devs.filter((d) => d.connectable && d.rssi != null && d.rssi < th && !sel.has(d.mac)).length;
     const warn = veryWeak ? `<div class="warn" style="margin-top:6px">⚠️ ${veryWeak} selected device(s) have very weak signal — they'll likely fail or be slow. Move them or a BLE proxy closer first.</div>` : "";
     this.querySelector("#m-body").innerHTML = `
-      <div style="margin-bottom:6px">${preset("nobk", "Only without backup")}${preset("all", "All devices")}${this._raPreset === "custom" ? `<span class="muted">· custom selection</span>` : ""}</div>
+      <div style="margin-bottom:6px">${preset("nobk", "Only without snapshot")}${preset("all", "All devices")}${this._raPreset === "custom" ? `<span class="muted">· custom selection</span>` : ""}</div>
       <div class="fld"><span class="lab">Skip weaker than</span>
         <input type="number" id="ra-th" value="${th}" step="1" style="width:80px"><span class="muted" style="margin-left:6px">dBm</span></div>
       <div class="muted" style="margin:4px 0 8px">Will read <b style="color:var(--tm-text)">${chosen.length}</b> device(s) · skipping ${devs.length - chosen.length} (${unreach} unreachable, ${belowTh} below threshold). Runs in the background, parallel by proxy.</div>
       ${warn}
       <div id="ra-scroll" style="overflow:auto;max-height:46vh;margin-top:6px">
         <table style="font-size:12px"><thead><tr>
-          <th style="width:30px"></th><th style="text-align:left">Device</th><th>Signal</th><th>Backup</th><th style="text-align:left">Status</th>
+          <th style="width:30px"></th><th style="text-align:left">Device</th><th>Signal</th><th>History</th><th style="text-align:left">Status</th>
         </tr></thead><tbody>${rows}</tbody></table>
       </div>`;
     this.querySelector("#m-actions").innerHTML = `
@@ -1627,9 +1639,10 @@ class TelinkManagerPanel extends HTMLElement {
       { k: "mac", lab: "MAC", tip: "Bluetooth MAC address.", get: (r) => r.mac },
       { k: "fw", lab: "fw", tip: "PVVX firmware version.", cmp: true, get: (r) => r.fw || "" },
       ...this._cmpConfigCols(),
-      { k: "lastbk", lab: "Last backup", tip: "When this device's state was last backed up or re-confirmed.", get: (r) => r.last_ts ? this._bkTs(r.last_ts) : "—" },
+      { k: "lastbk", lab: "Last snapshot", tip: "When this device's state was last snapshotted or re-confirmed.", get: (r) => r.last_ts ? this._bkTs(r.last_ts) : "—" },
     ];
     this._cmpRows = rows; this._cmpCols = COLS; this._cmpMode = "compare";
+    this._cmpTarget = null;
     this._cmpBusy = this._cmpBusy || new Set();
     this._cmpOnlyDiff = false;
     this._cmpSelected = new Set();
@@ -1682,26 +1695,23 @@ class TelinkManagerPanel extends HTMLElement {
     });
   }
 
-  // Per-device History: every snapshot of one device as a row (timeline), to see what changed over time.
-  async _openHistoryModal(mac) {
-    this._modalShell("📊 History");
-    const modalEl = this.querySelector(".modal");
-    if (modalEl) modalEl.style.width = "min(1150px, 96vw)";
-    this.querySelector("#m-title").innerHTML = this._devTitleHtml(mac, "📊") +
-      ` <span style="font-size:11px;font-weight:400;background:var(--secondary-background-color,#2a2a2a);padding:2px 8px;border-radius:10px;margin-left:6px;color:var(--secondary-text-color,#aaa)">history</span>`;
-    this._mstatus("Loading…", true);
+  // Render the per-device "Changes" matrix (the timeline of snapshots) inside an accordion view.
+  // Same data as the snapshot List, just shown as a colour-coded diff so changes over time stand out.
+  async _renderSnapChanges(mac, view) {
+    view.innerHTML = `<div id="snap-changes"><div class="muted">Loading history…</div></div>`;
+    this._cmpTarget = "#snap-changes";
     let snaps = [];
     try {
       const r = await this._ws({ type: "telink_manager/backups_history", mac });
       snaps = (r && r.snapshots) || [];
     } catch (e) { /* ignore */ }
-    this._mstatus("");
+    if (!view.isConnected) return;   // device collapsed / tab switched while loading
     const rows = snaps.slice().reverse().map((s) => ({
       ts: s.ts, device_name: s.device_name, fw: s.fw, comfort: s.comfort,
       bind_key_set: s.bind_key_set, f: s.fields || {},
     }));
     const COLS = [
-      { k: "ts", lab: "Time", tip: "When this backup was taken.", get: (r) => this._bkTs(r.ts) },
+      { k: "ts", lab: "Time", tip: "When this snapshot was taken.", get: (r) => this._bkTs(r.ts) },
       { k: "name", lab: "Device name", tip: "Device name stored on the device at that time.", cmp: true, get: (r) => r.device_name || "" },
       { k: "fw", lab: "fw", tip: "PVVX firmware version.", cmp: true, get: (r) => r.fw || "" },
       ...this._cmpConfigCols(),
@@ -1710,15 +1720,6 @@ class TelinkManagerPanel extends HTMLElement {
     this._cmpOnlyDiff = false;
     this._recomputeCompare();
     this._renderCompare();
-
-    this.querySelector("#m-actions").innerHTML = `
-      <button id="h-back" class="ghost">‹ Backups</button>
-      <button id="cmp-export" class="ghost">⬇ Export</button>
-      <button id="h-close" class="ghost" style="margin-left:auto">Close</button>`;
-    // "‹ Backups" returns to the global Backups list (matching its label), not this one device's screen.
-    this.querySelector("#h-back").onclick = () => this._openBackupsModal();
-    this.querySelector("#cmp-export").onclick = () => this._exportCompare();
-    this.querySelector("#h-close").onclick = () => this._closeModal();
   }
 
   async _compareRescan(mac) {
@@ -1782,15 +1783,16 @@ class TelinkManagerPanel extends HTMLElement {
       return `<tr>${ctrlTds}${tds}</tr>`;
     }).join("");
     const count = this._cmpMode === "history"
-      ? `${rows.length} backup${rows.length === 1 ? "" : "s"}`
+      ? `${rows.length} snapshot${rows.length === 1 ? "" : "s"}`
       : `${rows.length} device${rows.length === 1 ? "" : "s"}`;
     const note = this._cmpMode === "history"
-      ? `All saved backups of this device, newest first. Cells with the same value share a colour, so changes over time stand out.`
-      : `All devices (scanned or backed-up). Settings are from each device's last backup; identical values share a colour. ⟳ = re-read.`;
+      ? `Every snapshot of this device, newest first. Cells with the same value share a colour, so changes over time stand out.`
+      : `All devices (scanned or snapshotted). Settings are from each device's last snapshot; identical values share a colour. ⟳ = re-read.`;
     const diffLabel = this._cmpMode === "history" ? "Only changed columns" : "Only differing columns";
     const selFilter = selMode
       ? `<label style="cursor:pointer;white-space:nowrap;font-size:13px"><input type="checkbox" id="cmp-onlysel" ${onlySel ? "checked" : ""}> Show only selected${selSet.size ? ` <span class="muted">(${selSet.size})</span>` : ""}</label>` : "";
-    this.querySelector("#m-body").innerHTML = `
+    const cmpTgt = this.querySelector(this._cmpTarget || "#m-body");
+    if (cmpTgt) cmpTgt.innerHTML = `
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px">
         <label style="cursor:pointer;white-space:nowrap;font-size:13px"><input type="checkbox" id="cmp-diff" ${onlyDiff ? "checked" : ""}> ${diffLabel}</label>
         ${selFilter}
@@ -1882,9 +1884,13 @@ class TelinkManagerPanel extends HTMLElement {
     this._download("telink-compare.yaml", out.join("\n") + "\n", "text/yaml;charset=utf-8");
   }
 
-  // Global entry: list every device that has backups (no connection needed), pick one to drill in.
-  async _openBackupsModal() {
-    this._modalShell("🗄️ Backups");
+  // Global entry: an accordion of every device that has snapshots. Click a device to drill into its
+  // history right below the row (List of snapshots + a Changes matrix). Browsing needs no connection.
+  async _openSnapshotsModal(opts = {}) {
+    this._cmpTarget = null;
+    this._snapOpen = null;
+    this._modalShell("🗄️ Snapshots");
+    this._setSnapWidth(false);
     this._mstatus("Loading…", true);
     let devs = [];
     try {
@@ -1894,38 +1900,107 @@ class TelinkManagerPanel extends HTMLElement {
     this._mstatus("");
     const rows = devs.map((d) => {
       const fr = d.friendly_name || "", dn = d.device_name || "";
-      return `<div class="fld bkdev" data-mac="${d.mac}" style="cursor:pointer;justify-content:space-between;border-bottom:1px solid var(--divider-color,#333)">
-        <div><b>${escHtml(fr || dn || d.mac)}</b>${fr && dn ? ` <span class="muted">· ${escHtml(dn)}</span>` : ""}
-          <div class="muted" style="font-size:11px">${escHtml(d.mac)} · ${d.count} backup${d.count > 1 ? "s" : ""}</div></div>
-        <div style="white-space:nowrap;display:flex;align-items:center;gap:8px">
-          <button class="bk-hist ghost" data-mac="${d.mac}" style="padding:2px 8px" title="History — what changed over time">📊 History</button>
-          <span class="muted">${this._bkTs(d.last_ts)} ›</span></div>
+      const head = escHtml(fr || dn || d.mac);
+      const sub = `${escHtml(d.mac)} · ${d.count} snapshot${d.count > 1 ? "s" : ""} · ${this._bkTs(d.last_ts)}`;
+      return `<div class="snap-dev" data-mac="${d.mac}">
+        <div class="snap-dev-head" data-mac="${d.mac}">
+          <span class="snap-chev">▶</span>
+          <div style="flex:1 1 auto;min-width:0">
+            <b>${head}</b>${fr && dn ? ` <span class="muted">· ${escHtml(dn)}</span>` : ""}
+            <div class="muted" style="font-size:11px">${sub}</div>
+          </div>
+        </div>
+        <div class="snap-dev-body" data-mac="${d.mac}" style="display:none"></div>
       </div>`;
     }).join("") ||
-      `<div class="muted">No backups yet. Scan → Connect to a device — a backup is saved automatically on read.</div>`;
+      `<div class="muted">No snapshots yet. Scan → Connect to a device — a snapshot is saved automatically on read.</div>`;
     this.querySelector("#m-body").innerHTML = `
-      <div class="muted">Devices with saved backups — pick one to view & restore its backups. Browsing needs no connection.</div>
-      ${rows}`;
+      <div class="muted" style="margin-bottom:6px">Devices with saved snapshots — click one to open its history (list of snapshots + what changed over time).</div>
+      <div id="snap-accordion">${rows}</div>`;
     this.querySelector("#m-actions").innerHTML =
-      `<button id="m-bx-close" class="ghost" style="margin-left:auto">Close</button>`;
-    this.querySelector("#m-bx-close").onclick = () => this._closeModal();
-    this.querySelectorAll(".bkdev").forEach((el) => el.onclick = () => this._backupsForDevice(el.dataset.mac));
-    this.querySelectorAll(".bk-hist").forEach((b) => b.onclick = (e) => { e.stopPropagation(); this._openHistoryModal(b.dataset.mac); });
+      `<button id="m-snap-close" class="ghost" style="margin-left:auto">Close</button>`;
+    this.querySelector("#m-snap-close").onclick = () => this._closeModal();
+    this.querySelectorAll(".snap-dev-head").forEach((el) => el.onclick = () => this._toggleSnapDev(el.dataset.mac));
+    if (opts.expand) {
+      const dev = this.querySelector(`.snap-dev[data-mac="${opts.expand}"]`);
+      if (dev) { this._toggleSnapDev(opts.expand); dev.scrollIntoView({ block: "nearest" }); }
+    }
   }
 
-  async _backupsForDevice(mac) {
-    this.querySelector("#m-title").innerHTML = this._devTitleHtml(mac, "🗄️");
-    this._mstatus("Loading backups…", true);
+  // Snapshots modal is narrow for the device list / snapshot list, but the Changes matrix needs room.
+  _setSnapWidth(wide) {
+    const m = this.querySelector(".modal");
+    if (m) m.style.width = wide ? "min(1120px, 96vw)" : "min(760px, 94vw)";
+  }
+
+  // Single-open accordion: expand one device's history, collapsing any other that was open.
+  _toggleSnapDev(mac) {
+    const dev = this.querySelector(`.snap-dev[data-mac="${mac}"]`);
+    if (!dev) return;
+    const wasOpen = dev.classList.contains("open");
+    this.querySelectorAll(".snap-dev.open").forEach((el) => {
+      el.classList.remove("open");
+      const b = el.querySelector(".snap-dev-body");
+      if (b) { b.style.display = "none"; b.innerHTML = ""; }
+    });
+    this._cmpTarget = null;
+    this._setSnapWidth(false);
+    if (wasOpen) { this._snapOpen = null; return; }   // it was open → now collapsed
+    dev.classList.add("open");
+    this._snapOpen = mac;
+    const body = dev.querySelector(".snap-dev-body");
+    body.style.display = "";
+    this._renderSnapDevBody(mac, body);
+  }
+
+  // The expanded area: a List ⇄ Changes toggle over one device's snapshots (same data, two views).
+  _renderSnapDevBody(mac, body) {
+    body.innerHTML = `
+      <div class="snap-bar">
+        <button class="snap-tab choice" data-tab="list">📋 List</button>
+        <button class="snap-tab ghost" data-tab="changes">📊 Changes</button>
+        <button class="snap-export ghost" style="display:none;margin-left:auto" title="Export this device's history">⬇ Export</button>
+      </div>
+      <div class="snap-view"></div>`;
+    const view = body.querySelector(".snap-view");
+    const tabs = body.querySelectorAll(".snap-tab");
+    const exportBtn = body.querySelector(".snap-export");
+    const setTab = (tab) => {
+      tabs.forEach((t) => {
+        const on = t.dataset.tab === tab;
+        t.classList.toggle("choice", on);
+        t.classList.toggle("ghost", !on);
+      });
+      if (tab === "changes") {
+        exportBtn.style.display = "";
+        this._setSnapWidth(true);
+        this._renderSnapChanges(mac, view);
+      } else {
+        exportBtn.style.display = "none";
+        this._cmpTarget = null;
+        this._setSnapWidth(false);
+        this._renderSnapList(mac, view);
+      }
+    };
+    tabs.forEach((t) => t.onclick = () => setTab(t.dataset.tab));
+    exportBtn.onclick = () => this._exportCompare();
+    setTab("list");
+  }
+
+  // The "List" view inside an expanded device: the snapshot timeline with Restore / Clone / Delete.
+  async _renderSnapList(mac, view) {
+    this._cmpTarget = null;
+    view.innerHTML = `<div class="muted">Loading snapshots…</div>`;
     let list = [];
     try {
       const r = await this._ws({ type: "telink_manager/backups_list", mac });
       list = (r && r.backups) || [];
     } catch (e) { /* ignore */ }
-    this._mstatus("");
+    if (!view.isConnected) return;   // device collapsed / tab switched while loading
     const empty = list.length === 0;
     const rows = list.slice().reverse().map((s) => {
       const i = list.indexOf(s);
-      return `<div class="fld" style="justify-content:space-between;border-bottom:1px solid var(--divider-color,#333)">
+      return `<div class="snap-row">
         <div><b>${this._bkTs(s.ts)}</b> <span class="muted">· fw ${s.fw || "?"}</span></div>
         <div style="white-space:nowrap">
           <button class="bk-use" data-i="${i}">Restore…</button>
@@ -1935,52 +2010,42 @@ class TelinkManagerPanel extends HTMLElement {
     }).join("");
 
     const emptyState = `
-      <div style="text-align:center;padding:30px 18px">
-        <div style="font-size:42px;line-height:1;opacity:.45">🗄️</div>
-        <div style="font-size:15px;font-weight:600;margin-top:12px;color:var(--primary-text-color,#e6e6e6)">No backups yet</div>
-        <div style="font-size:12.5px;margin-top:7px;max-width:380px;margin-inline:auto;line-height:1.55;color:var(--secondary-text-color,#9aa0a6)">
-          A full-state backup — config, name, comfort, bind key &amp; sensor — is saved
-          <b style="color:var(--primary-text-color,#ccc)">automatically</b> every time you read this device, and after each change.
-          Just <b style="color:var(--primary-text-color,#ccc)">Connect &amp; Read</b> it to create the first one.
+      <div style="text-align:center;padding:24px 18px">
+        <div style="font-size:38px;line-height:1;opacity:.45">🗄️</div>
+        <div style="font-size:14px;font-weight:600;margin-top:10px;color:var(--tm-text)">No snapshots yet</div>
+        <div style="font-size:12.5px;margin-top:7px;max-width:380px;margin-inline:auto;line-height:1.55;color:var(--tm-text-2)">
+          A full-state snapshot — config, name, comfort, bind key &amp; sensor — is saved
+          <b style="color:var(--tm-text)">automatically</b> every time you read this device, and after each change.
+          Just <b style="color:var(--tm-text)">Connect &amp; Read</b> it to create the first one.
         </div>
       </div>`;
 
-    this.querySelector("#m-body").innerHTML = empty
-      ? `<div id="bk-list">${emptyState}</div><div id="bk-restore" style="display:none"></div>`
-      : `<div id="bk-intro" class="muted">Full-state backups (config + name + comfort + bind key + sensor), newest first.
-           Auto-saved on read and after each change (deduped, last 20 kept).</div>
-         <div id="bk-list">${rows}</div>
-         <div id="bk-restore" style="display:none"></div>`;
+    view.innerHTML = empty
+      ? `<div class="snap-list">${emptyState}</div><div class="snap-restore" style="display:none"></div>`
+      : `<div class="snap-list">${rows}</div><div class="snap-restore" style="display:none"></div>`;
+    if (empty) return;
 
-    this.querySelector("#m-actions").innerHTML = `
-      <button id="m-bk-back" class="ghost">‹ Devices</button>
-      <button id="m-bk-history" class="ghost"${empty ? ' disabled title="No history yet — this device has no backups"' : ""}>📊 History</button>
-      <button id="m-bk-close" class="ghost" style="margin-left:auto">Close</button>`;
-    this.querySelector("#m-bk-back").onclick = () => this._openBackupsModal();
-    if (!empty) this.querySelector("#m-bk-history").onclick = () => this._openHistoryModal(mac);
-    this.querySelector("#m-bk-close").onclick = () => this._closeModal();
-
-    this.querySelectorAll(".bk-del").forEach((b) => b.onclick = async () => {
+    view.querySelectorAll(".bk-del").forEach((b) => b.onclick = async () => {
       const s = list[+b.dataset.i];
-      if (!(await this._confirm("Delete this backup?", { okText: "Delete", danger: true }))) return;
+      if (!(await this._confirm("Delete this snapshot?", { okText: "Delete", danger: true }))) return;
       const r = await this._ws({ type: "telink_manager/backup_delete", mac, backup_id: s.id }).catch(() => null);
-      // Keep the main-page Backup count in sync with the new total.
+      // Keep the main-page History count in sync with the new total.
       if (r && typeof r.count === "number") { this._backupMacs.set(mac, r.count); this._renderDevTable(); }
-      this._backupsForDevice(mac);
+      this._renderSnapList(mac, view);
     });
-    this.querySelectorAll(".bk-use").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "restore"));
-    this.querySelectorAll(".bk-clone").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "clone"));
+    view.querySelectorAll(".bk-use").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "restore", view));
+    view.querySelectorAll(".bk-clone").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "clone", view));
   }
 
   // mode "restore" = back onto the SAME device; mode "clone" = copy onto ANOTHER device (never the MAC).
-  _showRestore(mac, snap, mode) {
-    const box = this.querySelector("#bk-restore");
+  // `view` is the expanded device's .snap-view container; the restore panel renders inside it.
+  _showRestore(mac, snap, mode, view) {
+    const box = view && view.querySelector(".snap-restore");
     if (!box || !snap) return;
     const isClone = mode === "clone";
-    // while the restore/clone panel is open, hide the backup list + intro + History button
+    // while the restore/clone panel is open, hide the snapshot list underneath it
     const showList = (show) => {
-      ["bk-list", "bk-intro"].forEach((id) => { const el = this.querySelector("#" + id); if (el) el.style.display = show ? "" : "none"; });
-      const h = this.querySelector("#m-bk-history"); if (h) h.style.display = show ? "" : "none";
+      const el = view.querySelector(".snap-list"); if (el) el.style.display = show ? "" : "none";
     };
     const closeRestore = () => { box.style.display = "none"; box.innerHTML = ""; showList(true); };
     showList(false);
@@ -2012,14 +2077,14 @@ class TelinkManagerPanel extends HTMLElement {
     const ck = (id, lab, tip) => `<label title="${tip}" style="margin-right:14px;cursor:pointer"><input type="checkbox" id="${id}"> ${lab}</label>`;
     const who = this._names[mac] || mac;
     const intro = isClone
-      ? `Copy the ticked settings from this backup onto ANOTHER device (nothing ticked by default). The MAC is never cloned.`
-      : `Restore the ticked settings to <b>${who}</b> from this backup (nothing ticked by default).`;
+      ? `Copy the ticked settings from this snapshot onto ANOTHER device (nothing ticked by default). The MAC is never cloned.`
+      : `Restore the ticked settings to <b>${who}</b> from this snapshot (nothing ticked by default).`;
     box.style.display = "";
     box.innerHTML = `
       <div class="advzone" style="margin-top:12px">
-        <h4 style="margin:0 0 6px">${isClone ? "Clone" : "Restore"} backup · ${this._bkTs(snap.ts)}</h4>
+        <h4 style="margin:0 0 6px">${isClone ? "Clone" : "Restore"} snapshot · ${this._bkTs(snap.ts)}</h4>
         <div class="muted">${intro}</div>
-        <div class="muted" style="margin-top:5px">🛡️ The ${isClone ? "target" : ""} device's current settings are saved as a backup automatically on connect, before anything is overwritten — so this stays reversible.</div>
+        <div class="muted" style="margin-top:5px">🛡️ The ${isClone ? "target" : ""} device's current settings are saved as a snapshot automatically on connect, before anything is overwritten — so this stays reversible.</div>
         <div style="margin:8px 0">
           ${ck("rs-config", "Config", "The full 0x55 configuration: adv interval, measure, display, flags, tx power, latency, etc.")}
           ${ck("rs-name", "Device name", "The BLE device name stored on the thermometer.")}
@@ -2054,8 +2119,8 @@ class TelinkManagerPanel extends HTMLElement {
       if (!parts.length) { this._mstatus(`Select at least one item to ${isClone ? "clone" : "restore"}.`); return; }
       const target = this.querySelector("#rs-target").value;
       const msg = isClone
-        ? `Clone [${parts.join(", ")}] onto ${target}?\n\nIts current settings will be overwritten from this backup. The MAC is NOT cloned.`
-        : `Restore [${parts.join(", ")}] to ${target}?\n\nThe current settings will be overwritten from this backup.`;
+        ? `Clone [${parts.join(", ")}] onto ${target}?\n\nIts current settings will be overwritten from this snapshot. The MAC is NOT cloned.`
+        : `Restore [${parts.join(", ")}] to ${target}?\n\nThe current settings will be overwritten from this snapshot.`;
       if (!(await this._confirm(msg, { okText: isClone ? "Clone" : "Restore", danger: true }))) return;
       const r = await this._runCmd(isClone ? "Cloning…" : "Restoring…",
         { type: "telink_manager/restore", target_mac: target, snapshot: snap, parts },
@@ -2065,7 +2130,7 @@ class TelinkManagerPanel extends HTMLElement {
       if (r && r.ok) {
         this._mstatus(`✅ Done — re-reading ${target}…`, true);
         await this._ws({ type: "telink_manager/read", mac: target }).catch(() => {});
-        this._backupsForDevice(mac);   // refresh this device's backup list
+        this._renderSnapList(mac, view);   // refresh this device's snapshot list
       }
     };
   }

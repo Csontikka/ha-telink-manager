@@ -24,8 +24,8 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - **Temporary LCD overlay** — push a custom number to the screen without persisting it.
 - **Dangerous settings** (clearly flagged, admin-only) — custom MAC address, encryption bind key, factory reset and reboot.
 - **RAW command** — send an arbitrary command to the PVVX config characteristic (for experimentation).
-- **Backup / Restore / Clone** — every read and every change is snapshotted server-side (with de-duplication and history limit). Restore any snapshot onto the same device, or **clone** a configuration onto another device (the MAC is never cloned). A safety backup of the target is always taken before an overwrite, so any restore is reversible.
-- **Compare & History** — a matrix view comparing the latest config of all backed-up devices, and a per-device timeline of every snapshot — all without touching BLE.
+- **Snapshots / History** — every read and every change is snapshotted server-side automatically (with de-duplication and a history limit). Browse each device's **history** of snapshots, **restore** any snapshot back onto the same device, or **clone** a configuration onto another device (the MAC is never cloned). A safety snapshot of the target is always taken before an overwrite, so any restore is reversible.
+- **Compare & History** — a matrix view comparing the latest config of all snapshotted devices, and a per-device timeline (the **History** / **Changes** view) of every snapshot — all without touching BLE.
 - **Read all** — a server-side bulk job that reads every device in parallel, grouped by proxy, with retries. It survives page refresh and navigation (progress is polled from the server) so you can walk away and come back.
 - **Battery column** — estimated charge and voltage from the advertisement, colour-coded.
 
@@ -43,9 +43,9 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 ![Cross-device compare matrix](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_compare.png)
 
-**Backups** — full-state snapshots per device with restore, clone and history (no connection needed):
+**Snapshots** — each device's history of full-state snapshots; expand a device for its timeline, with restore, clone and a per-device change matrix (no connection needed):
 
-![Per-device backups](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_backups.png)
+![Per-device snapshots and history](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_backups.png)
 
 ## Requirements
 
