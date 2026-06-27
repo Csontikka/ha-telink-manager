@@ -13,6 +13,8 @@ A Home Assistant admin panel for configuring **Telink BLE thermometers** running
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
+> **This configures thermometers — it does not flash firmware.** Your devices must already be running PVVX or ATC firmware. To convert a stock Xiaomi thermometer, flash it first with the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html); then this panel can read and write its settings.
+
 ## Features
 
 - **Scan** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
@@ -107,6 +109,14 @@ That's it. Open the panel and press **Scan**.
   - These actions are grouped, labelled as dangerous, and require admin access to the panel.
 - **Clone never copies the MAC.** Cloning writes a source device's settings onto a *different* target device while leaving the target's own MAC intact, so you never end up with two devices sharing one address.
 - If a write fails or a device "disappears" mid-operation, it is usually a weak proxy link — move the device closer to a proxy, or use a proxy with a stronger signal, and retry.
+
+## Known limitations
+
+- **Configures, doesn't flash.** This panel reads and writes settings on devices already running PVVX/ATC firmware. It cannot flash firmware (use the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)) and does not support stock Xiaomi firmware.
+- **It is not a sensor integration.** Temperature and humidity reach Home Assistant through the built-in **Bluetooth/BTHome** integration — Telink Manager creates no sensors. It only configures the device.
+- **An active (connectable) proxy is required** to read or write. A passive proxy only forwards advertisements (so you get scan and battery, but no connection) — see [Bluetooth proxies](#bluetooth-proxies).
+- **No BLE pairing / PIN.** Home Assistant's Bluetooth proxies cannot perform BLE pairing, so a device PIN is intentionally not settable here — setting one would lock this panel out, recoverable only with a hardware flasher.
+- **Encrypted advertisements** cannot be decoded without the bind key (this affects the BTHome sensor side, not configuration through this panel).
 
 ## Removal
 
