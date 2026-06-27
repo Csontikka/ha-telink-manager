@@ -117,6 +117,7 @@ That's it. Open the panel and press **Scan**.
 - **An active (connectable) proxy is required** to read or write. A passive proxy only forwards advertisements (so you get scan and battery, but no connection) — see [Bluetooth proxies](#bluetooth-proxies).
 - **No BLE pairing / PIN.** Home Assistant's Bluetooth proxies cannot perform BLE pairing, so a device PIN is intentionally not settable here — setting one would lock this panel out, recoverable only with a hardware flasher.
 - **Encrypted advertisements** cannot be decoded without the bind key (this affects the BTHome sensor side, not configuration through this panel).
+- **Validated on the Xiaomi LYWSD03MMC.** Telink Manager talks to the PVVX/ATC firmware's config protocol (the same `0x55` characteristic on every supported device), not a per-model format, so it is expected to work across the wider PVVX/ATC family (MHO-C401, CGG1, CGDK2, …). It is, however, currently field-tested only on the LYWSD03MMC; the one display-specific feature is the temporary LCD overlay, whose number layout targets that screen.
 
 ## Removal
 
