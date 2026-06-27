@@ -14,6 +14,7 @@ import struct
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from . import pvvx_struct
 from .const import (
@@ -158,6 +159,23 @@ def _battery_from_adv(si) -> dict:
     return {"battery": None, "battery_v": None, "battery_src": None}
 
 
+def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
+    """The user's own Home Assistant name for this thermometer (the device's name_by_user), matched
+    by BLE MAC. None if there is no device or the user never set a name. Read-only, no BLE.
+
+    ponytail: the scan only feeds Telink-OUI (A4:C1:38) MACs, so the matched device IS this
+    thermometer — no extra device-type guard needed. Match both MAC cases: integrations store the
+    bluetooth connection in upper or lower case (format_mac lower-cases; BTHome stores upper).
+    """
+    try:
+        device = dr.async_get(hass).async_get_device(
+            connections={(dr.CONNECTION_BLUETOOTH, mac), (dr.CONNECTION_BLUETOOTH, dr.format_mac(mac))}
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    return device.name_by_user if device else None
+
+
 async def async_scan(hass: HomeAssistant) -> list[dict]:
     """List discovered Telink (A4:C1:38) thermometers from the HA cache. Does NOT connect."""
     out: list[dict] = []
@@ -173,6 +191,7 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
             {
                 "mac": addr,
                 "name": si.name,
+                "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the
                 # Route (both describe the connectable path), so the weak-signal warning reflects the

@@ -104,6 +104,7 @@ class TelinkManagerPanel extends HTMLElement {
     this._selectedRssi = null;
     this._loaded = null;      // last read fields (baseline for diff)
     this._names = {};         // mac -> friendly name (from last scan)
+    this._haNames = {};       // mac -> the user's HA device name (name_by_user), if any — display hint only
     this._devs = [];          // last scan result
     this._sortKey = null;     // current sort column (null = backend order: connectable + signal)
     this._sortDir = "desc";
@@ -344,7 +345,7 @@ class TelinkManagerPanel extends HTMLElement {
       const devs = r.devices || [];
       this._devs = devs;
       this._names = {};
-      devs.forEach(d => { this._names[d.mac] = d.friend_name || ""; });
+      devs.forEach(d => { this._names[d.mac] = d.friend_name || ""; this._haNames[d.mac] = d.ha_name || ""; });
       // keep the previous selection if it's still present; otherwise select the first row
       // (so the page-load auto-scan leaves the first device selected).
       const keep = (prevSelected && devs.some(d => d.mac === prevSelected)) ? prevSelected
@@ -444,7 +445,7 @@ class TelinkManagerPanel extends HTMLElement {
       <tbody>${devs.map(d => `
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
           <td><span class="dot ${d.connectable ? "on" : "off"}"></span></td>
-          <td><input class="fname" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="name…"></td>
+          <td><input class="fname" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}"></td>
           <td>${escHtml(d.name) || "?"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
           <td>${d.proxy ? String(d.proxy).replace(/\s*\(.*\)\s*$/, "") : "—"}</td>
@@ -566,8 +567,11 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   // ---- modal ----
+  // The user's Home Assistant device name for a MAC (display hint only; never stored as a friendly name).
+  _ha(mac) { return (this._haNames || {})[mac] || ""; }
+
   _modalTitle(mac) {
-    const fn = this._names[mac];
+    const fn = this._names[mac] || this._ha(mac);
     const dev = (this._devs || []).find((d) => d.mac === mac); const ble = dev && dev.name && dev.name !== fn ? dev.name : null; return [fn, ble, mac].filter(Boolean).join(" · ");
   }
 
@@ -1343,7 +1347,7 @@ class TelinkManagerPanel extends HTMLElement {
   _devTitleHtml(mac, icon) {
     const dev = (this._devs || []).find((d) => d.mac === mac);
     const ble = dev && dev.name ? dev.name : "";
-    const name = this._names[mac] || ble || mac;
+    const name = this._names[mac] || this._ha(mac) || ble || mac;
     const sub = [ble && ble !== name ? ble : "", mac].filter(Boolean).join(" · ");
     return `${icon ? icon + " " : ""}<b>${escHtml(name)}</b>` +
       (sub ? ` <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color,#999)">${escHtml(sub)}</span>` : "");
@@ -1388,7 +1392,7 @@ class TelinkManagerPanel extends HTMLElement {
       const sig = this._signalOf(d.rssi);
       const nbk = this._backupMacs.get(d.mac) || 0;
       const disabled = !d.connectable;
-      const name = this._names[d.mac] || d.name || d.mac;
+      const name = this._names[d.mac] || this._ha(d.mac) || d.name || d.mac;
       return `<tr style="${disabled ? "opacity:.5" : ""}">
         <td style="text-align:center"><input type="checkbox" class="ra-pick" data-mac="${d.mac}" ${sel.has(d.mac) ? "checked" : ""} ${disabled ? "disabled" : ""}></td>
         <td style="text-align:left;white-space:nowrap">${escHtml(name)}</td>
@@ -1506,7 +1510,7 @@ class TelinkManagerPanel extends HTMLElement {
     if (!el) return;
     const s = st && st.state;
     if (!st || !st.active || !s) { el.style.display = "none"; el.innerHTML = ""; return; }
-    const nameOf = (m) => this._names[m] || ((this._devs || []).find((d) => d.mac === m) || {}).name || m;
+    const nameOf = (m) => this._names[m] || this._ha(m) || ((this._devs || []).find((d) => d.mac === m) || {}).name || m;
     const running = (s.running || []).map(nameOf);
     const runTxt = running.length ? ` · <span class="muted">now: ${running.slice(0, 3).join(", ")}${running.length > 3 ? ` +${running.length - 3}` : ""}</span>` : "";
     const cancelling = st.cancel ? ` · <span style="color:var(--tm-warn)">cancelling — finishing current devices safely…</span>` : "";
@@ -1528,7 +1532,7 @@ class TelinkManagerPanel extends HTMLElement {
     this._modalShell("📖 Read all — results");
     const failRows = (s.failures || []).map((f) => {
       const d = (this._devs || []).find((x) => x.mac === f.mac) || {};
-      const name = this._names[f.mac] || d.name || f.mac;
+      const name = this._names[f.mac] || this._ha(f.mac) || d.name || f.mac;
       const sig = this._signalOf(d.rssi);
       const hint = (sig.tier === "bad" || sig.tier === "weak") ? " → move it or a BLE proxy closer"
         : (f.error === "timeout" ? " → timed out" : "");
@@ -1558,7 +1562,7 @@ class TelinkManagerPanel extends HTMLElement {
         const sr = await this._ws({ type: "telink_manager/scan" });
         scanDevs = (sr && sr.devices) || [];
         this._devs = scanDevs;
-        scanDevs.forEach((d) => { this._names[d.mac] = d.friend_name || ""; });
+        scanDevs.forEach((d) => { this._names[d.mac] = d.friend_name || ""; this._haNames[d.mac] = d.ha_name || ""; });
       }
     } catch (e) { /* ignore */ }
     let cmp = [];
