@@ -96,6 +96,29 @@ Saved friendly names and backups are kept in HA storage; they are only removed i
 
 ## Troubleshooting
 
+Most connection problems are **range / Bluetooth-proxy** issues rather than bugs in this integration. Work through these first.
+
+### Common issues
+
+- **Scan finds nothing** — you need at least one Bluetooth proxy in range: an ESPHome device with `bluetooth_proxy` and `active: true`, a Shelly Gen2/Plus acting as a proxy, or a local Bluetooth adapter. Check the thermometer is powered and advertising (it should also show up in Home Assistant's normal Bluetooth/BTHome).
+- **A device won't connect / "Connecting…" times out** — almost always a weak link. Move the thermometer or a proxy closer (aim for better than **-80 dBm** in the RSSI column), make sure the chosen proxy is **active** and connectable, and retry. Writing needs a stronger link than reading.
+- **Write shows "not verified" / a setting didn't stick** — usually the link dropped mid-write; retry with a stronger signal. A few values are clamped or rejected by the firmware itself.
+- **A device "disappears" mid-operation / "no connectable"** — no proxy can reach it right now (out of range or asleep). Bring it closer to a proxy and Scan again.
+- **The panel isn't in the sidebar** — it is **admin-only**; log in with an admin account.
+
+### Is the problem here, in your Bluetooth, or in the firmware?
+
+Before opening an issue, run the **reference test** with the official PVVX tool. It talks to the *same* firmware over Web Bluetooth — straight from a phone or laptop, **with no Home Assistant and no proxy in between**:
+
+👉 **[PVVX TelinkMiFlasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)** — open it in Chrome/Edge, hold the device close, and try the same connect / read / write.
+
+- **The flasher can't do it either** → the problem is the **device, its firmware, or your Bluetooth**, not this integration. If it looks like a firmware bug, report it to the [PVVX firmware project](https://github.com/pvvx/ATC_MiThermometer) — this integration cannot fix what the firmware does.
+- **The flasher works fine right next to the device, but this integration keeps failing even with a strong proxy nearby** → that is worth a bug report **here** (attach the debug log below).
+
+This keeps every report — yours and mine — pointed at the layer that actually owns the bug.
+
+### Debug logging
+
 Enable debug logging by adding to `configuration.yaml`:
 
 ```yaml
@@ -106,6 +129,8 @@ logger:
 ```
 
 This logs every BLE connection attempt, which proxy was chosen, and the raw bytes exchanged with each device.
+
+When the reference test above points at the integration, [open an issue](https://github.com/Csontikka/ha-telink-manager/issues) with: your Home Assistant version, what you did, the RSSI shown, which proxy was used, and the debug log around the failure.
 
 ## Privacy & telemetry
 
