@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 
@@ -23,6 +24,19 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _panel_hash(path: str) -> str:
+    """Short content hash of the panel JS, used as a cache-busting query string on the module URL.
+
+    Any edit to the file changes the hash, so the browser refetches the new build automatically —
+    no hard-reload needed. Falls back to "0" if the file can't be read (still serves, just uncached).
+    """
+    try:
+        with open(path, "rb") as fh:
+            return hashlib.md5(fh.read(), usedforsecurity=False).hexdigest()[:8]
+    except OSError:
+        return "0"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -57,11 +71,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 5) register the standalone sidebar panel.
     if not data.get("_panel_registered"):
+        panel_js = os.path.join(os.path.dirname(__file__), "www", "telink-manager-panel.js")
+        ver = await hass.async_add_executor_job(_panel_hash, panel_js)
         await panel_custom.async_register_panel(
             hass,
             webcomponent_name="telink-manager-panel",
             frontend_url_path=PANEL_URL,
-            module_url=f"{STATIC_PATH}/telink-manager-panel.js",
+            module_url=f"{STATIC_PATH}/telink-manager-panel.js?h={ver}",
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
             require_admin=True,
