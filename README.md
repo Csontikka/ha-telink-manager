@@ -51,6 +51,28 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - At least one working **Bluetooth proxy** (ESPHome `bluetooth_proxy` with `active: true`, or a Shelly Gen2/Plus device acting as a proxy) **or** a local Bluetooth adapter, within range of the thermometers. Writing settings requires an **active**, connectable proxy.
 - Thermometers flashed with **PVVX or ATC custom firmware** (stock Xiaomi firmware is not supported).
 
+### Bluetooth proxies
+
+Reading, and especially **writing**, happens over a GATT **connection** — so the proxy must be able to make **active connections**, not just forward advertisements:
+
+- **ESPHome:** set `active: true` on the `bluetooth_proxy:` component. A passive proxy (`active: false`) can still scan and show battery from advertisements, but **cannot connect or configure** a device.
+- **Shelly Gen2/Plus:** enable its Bluetooth gateway / proxy so Home Assistant can connect through it.
+
+A minimal ESPHome proxy:
+
+```yaml
+esp32_ble_tracker:
+
+bluetooth_proxy:
+  active: true   # let Home Assistant open GATT connections — required to configure devices
+```
+
+Tips:
+
+- **Leave the scan interval/window at the ESPHome defaults.** A near-100% scan duty cycle looks good for discovery but starves the radio of the time it needs for connections — which is exactly what this integration relies on. (Optionally add `esp32_ble_tracker: scan_parameters: active: true` for nicer advertised names; that's separate from `bluetooth_proxy: active`.)
+- An ESP32 proxy handles roughly **3 active connections at once**. "Read all" reads serially within one proxy and in parallel across proxies, so **more proxies = faster bulk reads and better coverage**.
+- Place a proxy close enough that devices read **better than -80 dBm** (shown in the RSSI column). Weak links are the number-one cause of failed connects and writes.
+
 ## Installation
 
 ### HACS (recommended)
