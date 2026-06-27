@@ -157,6 +157,20 @@ class TelinkManagerPanel extends HTMLElement {
         button.choice { background: var(--tm-accent-soft); color: var(--tm-accent);
           border: 1px solid var(--tm-accent); font-weight: 600; }
         button.choice:hover:not(:disabled) { background: var(--tm-accent); color: #fff; filter: none; }
+        /* Discreetly tinted "view" buttons (Compare / Snapshots) — read-only, no-connection tools. */
+        button.view { background: var(--tm-accent-soft); color: var(--tm-accent);
+          border: 1px solid color-mix(in srgb, var(--tm-accent) 30%, transparent); }
+        button.view:hover:not(:disabled) { background: var(--tm-accent); color: #fff;
+          border-color: var(--tm-accent); filter: none; }
+        /* Calm filled "action" buttons (Connect / Read all / Refresh) — give them a background
+           without the loud full-accent fill. */
+        button.act { background: var(--tm-bg-2); color: var(--tm-text);
+          border: 1px solid var(--tm-border); }
+        button.act:hover:not(:disabled) { background: var(--tm-accent-soft); color: var(--tm-text);
+          border-color: var(--tm-accent); filter: none; }
+        /* Top-bar groups use flex gap for spacing; drop the global button right-margin so the
+           last button (Snapshots) lines up with the table edge and the Buy-me-a-coffee button. */
+        button.act, button.view { margin-right: 0; }
         button.danger { background: var(--tm-danger); color: #fff; border-color: transparent; }
         .status { margin-top: 10px; font-size: 13px; color: var(--tm-text-2); min-height: 18px; }
         table { width: 100%; border-collapse: collapse; margin-top: 12px; }
@@ -199,19 +213,32 @@ class TelinkManagerPanel extends HTMLElement {
           color: var(--tm-text-2); transition: transform .15s; }
         .snap-dev.open .snap-chev { transform: rotate(90deg); }
         .snap-dev-body { padding: 2px 2px 12px 24px; }
-        .snap-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-        .snap-tab { font-size: 12px; padding: 3px 11px; }
-        .snap-row { display: flex; align-items: center; justify-content: space-between;
-          padding: 6px 2px; border-bottom: 1px solid var(--tm-border); font-size: 13px; }
-        .snap-row:last-child { border-bottom: none; }
+        .snap-act { width: 26px; height: 26px; padding: 0; border: none; background: transparent;
+          cursor: pointer; display: inline-flex; align-items: center;
+          justify-content: center; border-radius: 5px; transition: color .12s, background .12s; }
+        .snap-act svg { width: 17px; height: 17px; fill: currentColor; display: block; }
+        .snap-act:hover { filter: none; }
+        .snap-restore-b { color: #43a047; }
+        .snap-clone-b { color: var(--tm-accent); }
+        .snap-del-b { color: #e5573d; }
+        .snap-restore-b:hover { color: #fff; background: #43a047; }
+        .snap-clone-b:hover { color: #fff; background: var(--tm-accent); }
+        .snap-del-b:hover { color: #fff; background: #e5573d; }
         .ro .lab { color: #888; } .ro b { color: #bbb; }
         .muted { color: var(--tm-text-2); font-size: 12px; }
         .warn { color: #ff7a7a; font-size: 12px; }
         .topbar { display: flex; align-items: center; justify-content: space-between; }
-        .bmc { font-size: 12px; color: var(--tm-text-2); text-decoration: none;
-          opacity: .7; padding: 5px 10px; border: 1px solid var(--tm-border);
+        .bmc { font-size: 12px; color: #c8a64e; text-decoration: none;
+          padding: 5px 10px; border: 1px solid color-mix(in srgb, #ffcc33 38%, transparent);
           border-radius: var(--tm-radius); white-space: nowrap; transition: all .15s; }
-        .bmc:hover { opacity: 1; color: #ffcc33; border-color: #ffcc33; }
+        .bmc:hover { color: #ffcc33; border-color: #ffcc33; }
+        .info-link { display: inline-flex; align-items: center; justify-content: center;
+          width: 30px; height: 30px; border: 1px solid var(--tm-border); border-radius: var(--tm-radius);
+          color: var(--tm-text-2); text-decoration: none; opacity: .7; transition: all .15s; }
+        .info-link:hover { opacity: 1; color: var(--tm-accent); border-color: var(--tm-accent); background: var(--tm-accent-soft); }
+        .info-link svg { width: 17px; height: 17px; fill: currentColor; display: block; }
+        .title-link { color: inherit; text-decoration: none; transition: color .15s; }
+        .title-link:hover { color: var(--tm-accent); }
         .dangerzone { margin-top: 12px; padding: 12px; border: 1px solid var(--tm-danger);
           background: color-mix(in srgb, var(--tm-danger) 8%, transparent); border-radius: var(--tm-radius-lg); }
         .advzone { margin-top: 12px; padding: 12px; border: 1px solid var(--tm-warn);
@@ -240,20 +267,24 @@ class TelinkManagerPanel extends HTMLElement {
       </style>
       <div class="wrap">
         <div class="topbar">
-          <h1><svg viewBox="0 0 512 512" style="width:34px;height:34px;vertical-align:middle;margin-right:8px;flex-shrink:0"><circle cx="256" cy="256" r="248" fill="#1a6ea8" opacity="0.18"/><circle cx="256" cy="256" r="216" fill="#1a6ea8"/><circle cx="256" cy="256" r="216" fill="none" stroke="#2ea8d8" stroke-width="10" opacity="0.9"/><circle cx="256" cy="256" r="159" fill="#0d4f7c"/><rect x="236" y="110" width="40" height="185" rx="20" fill="none" stroke="#fff" stroke-width="18"/><circle cx="256" cy="330" r="46" fill="#fff"/><rect x="244" y="170" width="24" height="160" rx="12" fill="#fff"/><line x1="290" y1="155" x2="320" y2="155" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="195" x2="320" y2="195" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="235" x2="320" y2="235" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="275" x2="320" y2="275" stroke="#fff" stroke-width="14" stroke-linecap="round"/></svg>Telink Manager <span class="muted" style="font-size:11px;font-weight:normal">by Csontikka @ 2026</span></h1>
-          <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
-             title="If any of these sound familiar, a coffee would be appreciated!&#10;&#10;• Saved you a lap around the house to push new settings to every device&#10;• Helped figure out why one thermometer reports half as often as the others&#10;• Means you no longer crawl behind the radiator with a laptop&#10;• One integration, zero thermometer safaris">☕ Buy me a coffee</a>
+          <h1><svg viewBox="0 0 512 512" style="width:34px;height:34px;vertical-align:middle;margin-right:8px;flex-shrink:0"><circle cx="256" cy="256" r="248" fill="#1a6ea8" opacity="0.18"/><circle cx="256" cy="256" r="216" fill="#1a6ea8"/><circle cx="256" cy="256" r="216" fill="none" stroke="#2ea8d8" stroke-width="10" opacity="0.9"/><circle cx="256" cy="256" r="159" fill="#0d4f7c"/><rect x="236" y="110" width="40" height="185" rx="20" fill="none" stroke="#fff" stroke-width="18"/><circle cx="256" cy="330" r="46" fill="#fff"/><rect x="244" y="170" width="24" height="160" rx="12" fill="#fff"/><line x1="290" y1="155" x2="320" y2="155" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="195" x2="320" y2="195" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="235" x2="320" y2="235" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="275" x2="320" y2="275" stroke="#fff" stroke-width="14" stroke-linecap="round"/></svg><a class="title-link" href="https://github.com/Csontikka/ha-telink-manager" target="_blank" rel="noopener">Telink Manager</a> <span class="muted" style="font-size:11px;font-weight:normal">by <a class="title-link" href="https://github.com/Csontikka" target="_blank" rel="noopener">Csontikka</a> @ 2026</span></h1>
+          <div style="display:flex; align-items:center; gap:8px">
+            <a class="info-link" href="https://github.com/Csontikka/ha-telink-manager#readme" target="_blank" rel="noopener"
+               title="About &amp; documentation — opens the GitHub README"><svg viewBox="0 0 24 24"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg></a>
+            <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
+               title="If any of these sound familiar, a coffee would be appreciated!&#10;&#10;• Saved you a lap around the house to push new settings to every device&#10;• Helped figure out why one thermometer reports half as often as the others&#10;• Means you no longer crawl behind the radiator with a laptop&#10;• One integration, zero thermometer safaris">☕ Buy me a coffee</a>
+          </div>
         </div>
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px">
-          <div>
-            <button id="read" disabled>Connect</button>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button id="read" class="act" disabled>🔌 Connect</button>
             <button id="cancel" class="cancel" style="display:none">Cancel</button>
+            <button id="readall-btn" class="act" title="Connect to many devices in one go and snapshot them (parallel by proxy)">📖 Read all</button>
+            <button id="scan" class="act" title="Re-scan for devices in range">🔄 Refresh</button>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
-            <button id="compare-btn" class="ghost" title="Compare all sensors' settings side by side (from snapshots, no connection)">📊 Compare</button>
-            <button id="backups-btn" class="ghost" title="Every device's saved snapshots and history (no connection needed)">🗄️ Snapshots</button>
-            <button id="readall-btn" class="ghost" title="Connect to many devices in one go and back them up (parallel by proxy)">📖 Read all</button>
-            <button id="scan">Scan</button>
+            <button id="compare-btn" class="view" title="Compare all sensors' settings side by side (from snapshots, no connection)">📊 Compare</button>
+            <button id="backups-btn" class="view" title="Every device's saved snapshots and history (no connection needed)">🗄️ Snapshots</button>
           </div>
         </div>
         <div class="status" id="status"></div>
@@ -461,7 +492,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#list").innerHTML = `
       <table><thead><tr>
         <th></th>${th("friendly", "Friendly name")}${th("name", "BLE name")}${th("mac", "MAC")}
-        ${th("rssi", "RSSI")}${th("proxy", "Route")}${th("battery", "Battery")}${th("backup", "History")}
+        ${th("rssi", "RSSI")}${th("proxy", "Route")}${th("battery", "Battery")}${th("backup", "Snapshots")}
       </tr></thead>
       <tbody>${devs.map(d => `
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
@@ -559,7 +590,7 @@ class TelinkManagerPanel extends HTMLElement {
           `still try.\n\nTry to connect anyway?`,
         { okText: "Try anyway", cancelText: "Cancel" });
       if (!proceed) {
-        this._status(`${mac} isn't reachable by a connectable proxy. Bring an active proxy closer and Scan again.`);
+        this._status(`${mac} isn't reachable by a connectable proxy. Bring an active proxy closer and Refresh.`);
         return;
       }
     }
@@ -577,7 +608,7 @@ class TelinkManagerPanel extends HTMLElement {
         okText: bad ? "Connect anyway (risky)" : "Connect anyway",
         cancelText: "Cancel", danger: true });
       if (!proceed) {
-        this._status(`Read cancelled — weak signal (${this._selectedRssi} dBm). Move it closer and Scan again.`);
+        this._status(`Read cancelled — weak signal (${this._selectedRssi} dBm). Move it closer and Refresh.`);
         return;
       }
     }
@@ -1125,7 +1156,7 @@ class TelinkManagerPanel extends HTMLElement {
       await this._runCmd("Setting MAC…",
         { type: "telink_manager/set_mac", mac, new_mac: newMac },
         (r) => `✅ MAC set to ${escHtml(r.device_mac)}. It takes effect now (the device reboots as the link drops); ` +
-               `HA will see it as a NEW device — close and Scan again to find it under the new MAC.`);
+               `HA will see it as a NEW device — close and Refresh to find it under the new MAC.`);
     };
     this.querySelector("#c-bk-read").onclick = async () => {
       const r = await this._runCmd("Reading bind key…",
@@ -1390,16 +1421,6 @@ class TelinkManagerPanel extends HTMLElement {
 
   _bkTs(ts) { try { return new Date(ts * 1000).toLocaleString(); } catch (e) { return String(ts); } }
 
-  // Styled modal title: icon + friendly name (bold) + BLE name / MAC (muted, smaller).
-  _devTitleHtml(mac, icon) {
-    const dev = (this._devs || []).find((d) => d.mac === mac);
-    const ble = dev && dev.name ? dev.name : "";
-    const name = this._names[mac] || this._ha(mac) || ble || mac;
-    const sub = [ble && ble !== name ? ble : "", mac].filter(Boolean).join(" · ");
-    return `${icon ? icon + " " : ""}<b>${escHtml(name)}</b>` +
-      (sub ? ` <span style="font-weight:400;font-size:12px;color:var(--secondary-text-color,#999)">${escHtml(sub)}</span>` : "");
-  }
-
   // ===== Read all (bulk read): connect to many devices, parallel by proxy, back each up =====
   _signalOf(rssi) {
     if (rssi == null) return { tier: "unknown", lab: "no RSSI", color: "var(--tm-text-2,#9aa0a6)" };
@@ -1423,7 +1444,7 @@ class TelinkManagerPanel extends HTMLElement {
 
   _openReadAllDialog() {
     if (this._bulkActiveNow()) return;
-    if (!this._devs || !this._devs.length) { this._status("Scan first — no devices to read."); return; }
+    if (!this._devs || !this._devs.length) { this._status("Refresh first — no devices to read."); return; }
     this._modalShell("📖 Read all devices");
     this._raPreset = "nobk";
     this._raThreshold = -85;
@@ -1461,7 +1482,7 @@ class TelinkManagerPanel extends HTMLElement {
       ${warn}
       <div id="ra-scroll" style="overflow:auto;max-height:46vh;margin-top:6px">
         <table style="font-size:12px"><thead><tr>
-          <th style="width:30px"></th><th style="text-align:left">Device</th><th>Signal</th><th>History</th><th style="text-align:left">Status</th>
+          <th style="width:30px"></th><th style="text-align:left">Device</th><th>Signal</th><th>Snapshots</th><th style="text-align:left">Status</th>
         </tr></thead><tbody>${rows}</tbody></table>
       </div>`;
     this.querySelector("#m-actions").innerHTML = `
@@ -1696,18 +1717,30 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   // Render the per-device "Changes" matrix (the timeline of snapshots) inside an accordion view.
-  // Same data as the snapshot List, just shown as a colour-coded diff so changes over time stand out.
+  // Loads the parsed history (for the colour-coded matrix) and the full snapshots (for Restore/Clone),
+  // keyed by id, so each row's actions can hand the whole snapshot to _showRestore.
   async _renderSnapChanges(mac, view) {
-    view.innerHTML = `<div id="snap-changes"><div class="muted">Loading history…</div></div>`;
     this._cmpTarget = "#snap-changes";
-    let snaps = [];
+    const cont = view.querySelector("#snap-changes");
+    if (cont) cont.innerHTML = `<div class="muted">Loading history…</div>`;
+    let snaps = [], full = [];
     try {
-      const r = await this._ws({ type: "telink_manager/backups_history", mac });
-      snaps = (r && r.snapshots) || [];
+      const [h, l] = await Promise.all([
+        this._ws({ type: "telink_manager/backups_history", mac }),
+        this._ws({ type: "telink_manager/backups_list", mac }),
+      ]);
+      snaps = (h && h.snapshots) || [];
+      full = (l && l.backups) || [];
     } catch (e) { /* ignore */ }
-    if (!view.isConnected) return;   // device collapsed / tab switched while loading
+    if (!view.isConnected) return;   // device collapsed while loading
+    this._snapById = new Map(full.map((s) => [s.id, s]));
+    if (!snaps.length) {
+      const c2 = view.querySelector("#snap-changes");
+      if (c2) c2.innerHTML = `<div class="muted" style="padding:14px 4px">No snapshots left for this device.</div>`;
+      return;
+    }
     const rows = snaps.slice().reverse().map((s) => ({
-      ts: s.ts, device_name: s.device_name, fw: s.fw, comfort: s.comfort,
+      id: s.id, ts: s.ts, device_name: s.device_name, fw: s.fw, comfort: s.comfort,
       bind_key_set: s.bind_key_set, f: s.fields || {},
     }));
     const COLS = [
@@ -1758,12 +1791,26 @@ class TelinkManagerPanel extends HTMLElement {
     const allSel = selMode && rows.length > 0 && rows.every((r) => selSet.has(r.mac));
     // dedicated sticky columns: [checkbox][re-read ⟳], so the header tick + the ⟳ each sit in their own
     // column above the row controls; the Friendly column then holds just the name.
+    // History rows carry per-snapshot actions: Restore + Clone + Delete grouped together, sticky at
+    // the left — so they stay reachable while the wide config matrix scrolls horizontally.
+    const actMode = this._cmpMode === "history";
+    const AW = 32;
+    const ICON = {
+      restore: '<svg viewBox="0 0 24 24"><path d="M13,3A9,9 0 0,0 4,12H1L4.89,15.89L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3Z"/></svg>',
+      clone: '<svg viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>',
+      del: '<svg viewBox="0 0 24 24"><path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>',
+    };
     const CKW = 36, RSW = 38, BG = "var(--card-background-color,#1e1e1e)";
-    const friendlyLeft = selMode ? `${CKW + RSW}px` : "0";
+    const leadW = selMode ? (CKW + RSW) : (actMode ? 3 * AW : 0);
+    const friendlyLeft = leadW ? `${leadW}px` : "0";
     const selTh = selMode
       ? `<th style="position:sticky;left:0;z-index:4;width:${CKW}px;text-align:center"><input type="checkbox" id="cmp-sel-all" ${allSel ? "checked" : ""} title="Select all" style="vertical-align:middle"></th>` +
         `<th title="Re-read each device" style="position:sticky;left:${CKW}px;z-index:4;width:${RSW}px;text-align:center">⟳</th>` : "";
-    const head = selTh + cols.map((c, i) => {
+    const actTh = actMode
+      ? `<th title="Restore this snapshot onto this device" style="position:sticky;left:0;z-index:4;width:${AW}px"></th>` +
+        `<th title="Clone this snapshot onto another device" style="position:sticky;left:${AW}px;z-index:4;width:${AW}px"></th>` +
+        `<th title="Delete this snapshot" style="position:sticky;left:${2 * AW}px;z-index:4;width:${AW}px"></th>` : "";
+    const head = selTh + actTh + cols.map((c, i) => {
       const sticky = i === 0 ? `position:sticky;left:${friendlyLeft};z-index:3;` : "";
       return `<th title="${(c.tip || c.lab).replace(/"/g, "&quot;")}" style="cursor:help;${sticky}">${c.lab}</th>`;
     }).join("");
@@ -1772,6 +1819,10 @@ class TelinkManagerPanel extends HTMLElement {
       const ctrlTds = selMode
         ? `<td style="position:sticky;left:0;z-index:2;width:${CKW}px;text-align:center;background:${BG}">${r.mac ? `<input type="checkbox" class="cmp-sel" data-mac="${r.mac}" ${selSet.has(r.mac) ? "checked" : ""} style="vertical-align:middle">` : ""}</td>` +
           `<td style="position:sticky;left:${CKW}px;z-index:2;width:${RSW}px;text-align:center;background:${BG}">${r.mac ? `<button class="cmp-rescan ghost" data-mac="${r.mac}" ${busy ? "disabled" : ""} style="padding:1px 6px" title="Re-read this device now (background)">${busy ? "…" : "⟳"}</button>` : ""}</td>` : "";
+      const actTds = actMode
+        ? `<td style="position:sticky;left:0;z-index:2;width:${AW}px;text-align:center;background:${BG}"><button class="snap-act snap-restore-b" data-act="restore" data-id="${r.id}" title="Restore this snapshot…">${ICON.restore}</button></td>` +
+          `<td style="position:sticky;left:${AW}px;z-index:2;width:${AW}px;text-align:center;background:${BG}"><button class="snap-act snap-clone-b" data-act="clone" data-id="${r.id}" title="Clone this snapshot…">${ICON.clone}</button></td>` +
+          `<td style="position:sticky;left:${2 * AW}px;z-index:2;width:${AW}px;text-align:center;background:${BG}"><button class="snap-act snap-del-b" data-act="delete" data-id="${r.id}" title="Delete this snapshot">${ICON.del}</button></td>` : "";
       const tds = cols.map((c, i) => {
         const v = val(c, r);
         if (i === 0) {
@@ -1780,7 +1831,7 @@ class TelinkManagerPanel extends HTMLElement {
         const bg = (c.cmp && !c._uniform && v !== "") ? `background:hsl(${(c._distinct.indexOf(v) * 67) % 360} 45% 22%);` : "";
         return `<td style="${bg}white-space:nowrap">${escHtml(v) || "—"}</td>`;
       }).join("");
-      return `<tr>${ctrlTds}${tds}</tr>`;
+      return `<tr>${ctrlTds}${actTds}${tds}</tr>`;
     }).join("");
     const count = this._cmpMode === "history"
       ? `${rows.length} snapshot${rows.length === 1 ? "" : "s"}`
@@ -1913,9 +1964,9 @@ class TelinkManagerPanel extends HTMLElement {
         <div class="snap-dev-body" data-mac="${d.mac}" style="display:none"></div>
       </div>`;
     }).join("") ||
-      `<div class="muted">No snapshots yet. Scan → Connect to a device — a snapshot is saved automatically on read.</div>`;
+      `<div class="muted">No snapshots yet. Refresh → Connect to a device — a snapshot is saved automatically on read.</div>`;
     this.querySelector("#m-body").innerHTML = `
-      <div class="muted" style="margin-bottom:6px">Devices with saved snapshots — click one to open its history (list of snapshots + what changed over time).</div>
+      <div class="muted" style="margin-bottom:6px">Devices with saved snapshots — click one to open its history: every snapshot and what changed over time. Restore, clone and delete from each row.</div>
       <div id="snap-accordion">${rows}</div>`;
     this.querySelector("#m-actions").innerHTML =
       `<button id="m-snap-close" class="ghost" style="margin-left:auto">Close</button>`;
@@ -1953,88 +2004,36 @@ class TelinkManagerPanel extends HTMLElement {
     this._renderSnapDevBody(mac, body);
   }
 
-  // The expanded area: a List ⇄ Changes toggle over one device's snapshots (same data, two views).
+  // The expanded area: one device's snapshot history as a single Changes matrix, with per-row
+  // Restore / Clone / Delete actions baked into the table. No separate List view — the matrix has it all.
   _renderSnapDevBody(mac, body) {
     body.innerHTML = `
-      <div class="snap-bar">
-        <button class="snap-tab choice" data-tab="list">📋 List</button>
-        <button class="snap-tab ghost" data-tab="changes">📊 Changes</button>
-        <button class="snap-export ghost" style="display:none;margin-left:auto" title="Export this device's history">⬇ Export</button>
-      </div>
-      <div class="snap-view"></div>`;
+      <div class="snap-view">
+        <div id="snap-changes"><div class="muted">Loading history…</div></div>
+        <div class="snap-restore" style="display:none"></div>
+      </div>`;
     const view = body.querySelector(".snap-view");
-    const tabs = body.querySelectorAll(".snap-tab");
-    const exportBtn = body.querySelector(".snap-export");
-    const setTab = (tab) => {
-      tabs.forEach((t) => {
-        const on = t.dataset.tab === tab;
-        t.classList.toggle("choice", on);
-        t.classList.toggle("ghost", !on);
-      });
-      if (tab === "changes") {
-        exportBtn.style.display = "";
-        this._setSnapWidth(true);
-        this._renderSnapChanges(mac, view);
-      } else {
-        exportBtn.style.display = "none";
-        this._cmpTarget = null;
-        this._setSnapWidth(false);
-        this._renderSnapList(mac, view);
-      }
-    };
-    tabs.forEach((t) => t.onclick = () => setTab(t.dataset.tab));
-    exportBtn.onclick = () => this._exportCompare();
-    setTab("list");
+    // The matrix re-renders on the "Only changed columns" toggle, so delegate row actions on the
+    // stable .snap-view parent rather than on the (replaced) inner table.
+    view.addEventListener("click", (e) => {
+      const btn = e.target.closest(".snap-act");
+      if (!btn) return;
+      e.stopPropagation();
+      const id = btn.dataset.id, act = btn.dataset.act;
+      if (act === "delete") return this._snapDelete(mac, id, view);
+      const snap = this._snapById && this._snapById.get(id);
+      if (snap) this._showRestore(mac, snap, act, view);
+    });
+    this._setSnapWidth(true);
+    this._renderSnapChanges(mac, view);
   }
 
-  // The "List" view inside an expanded device: the snapshot timeline with Restore / Clone / Delete.
-  async _renderSnapList(mac, view) {
-    this._cmpTarget = null;
-    view.innerHTML = `<div class="muted">Loading snapshots…</div>`;
-    let list = [];
-    try {
-      const r = await this._ws({ type: "telink_manager/backups_list", mac });
-      list = (r && r.backups) || [];
-    } catch (e) { /* ignore */ }
-    if (!view.isConnected) return;   // device collapsed / tab switched while loading
-    const empty = list.length === 0;
-    const rows = list.slice().reverse().map((s) => {
-      const i = list.indexOf(s);
-      return `<div class="snap-row">
-        <div><b>${this._bkTs(s.ts)}</b> <span class="muted">· fw ${s.fw || "?"}</span></div>
-        <div style="white-space:nowrap">
-          <button class="bk-use" data-i="${i}">Restore…</button>
-          <button class="bk-clone ghost" data-i="${i}">Clone…</button>
-          <button class="bk-del ghost" data-i="${i}">🗑</button></div>
-      </div>`;
-    }).join("");
-
-    const emptyState = `
-      <div style="text-align:center;padding:24px 18px">
-        <div style="font-size:38px;line-height:1;opacity:.45">🗄️</div>
-        <div style="font-size:14px;font-weight:600;margin-top:10px;color:var(--tm-text)">No snapshots yet</div>
-        <div style="font-size:12.5px;margin-top:7px;max-width:380px;margin-inline:auto;line-height:1.55;color:var(--tm-text-2)">
-          A full-state snapshot — config, name, comfort, bind key &amp; sensor — is saved
-          <b style="color:var(--tm-text)">automatically</b> every time you read this device, and after each change.
-          Just <b style="color:var(--tm-text)">Connect &amp; Read</b> it to create the first one.
-        </div>
-      </div>`;
-
-    view.innerHTML = empty
-      ? `<div class="snap-list">${emptyState}</div><div class="snap-restore" style="display:none"></div>`
-      : `<div class="snap-list">${rows}</div><div class="snap-restore" style="display:none"></div>`;
-    if (empty) return;
-
-    view.querySelectorAll(".bk-del").forEach((b) => b.onclick = async () => {
-      const s = list[+b.dataset.i];
-      if (!(await this._confirm("Delete this snapshot?", { okText: "Delete", danger: true }))) return;
-      const r = await this._ws({ type: "telink_manager/backup_delete", mac, backup_id: s.id }).catch(() => null);
-      // Keep the main-page History count in sync with the new total.
-      if (r && typeof r.count === "number") { this._backupMacs.set(mac, r.count); this._renderDevTable(); }
-      this._renderSnapList(mac, view);
-    });
-    view.querySelectorAll(".bk-use").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "restore", view));
-    view.querySelectorAll(".bk-clone").forEach((b) => b.onclick = () => this._showRestore(mac, list[+b.dataset.i], "clone", view));
+  // Delete one snapshot, keep the main-table History count in sync, then re-render the matrix.
+  async _snapDelete(mac, id, view) {
+    if (!(await this._confirm("Delete this snapshot?", { okText: "Delete", danger: true }))) return;
+    const r = await this._ws({ type: "telink_manager/backup_delete", mac, backup_id: id }).catch(() => null);
+    if (r && typeof r.count === "number") { this._backupMacs.set(mac, r.count); this._renderDevTable(); }
+    this._renderSnapChanges(mac, view);
   }
 
   // mode "restore" = back onto the SAME device; mode "clone" = copy onto ANOTHER device (never the MAC).
@@ -2043,9 +2042,9 @@ class TelinkManagerPanel extends HTMLElement {
     const box = view && view.querySelector(".snap-restore");
     if (!box || !snap) return;
     const isClone = mode === "clone";
-    // while the restore/clone panel is open, hide the snapshot list underneath it
+    // while the restore/clone panel is open, hide the history matrix underneath it
     const showList = (show) => {
-      const el = view.querySelector(".snap-list"); if (el) el.style.display = show ? "" : "none";
+      const el = view.querySelector("#snap-changes"); if (el) el.style.display = show ? "" : "none";
     };
     const closeRestore = () => { box.style.display = "none"; box.innerHTML = ""; showList(true); };
     showList(false);
@@ -2056,7 +2055,7 @@ class TelinkManagerPanel extends HTMLElement {
       if (!others.length) {
         box.style.display = "";
         box.innerHTML = `<div class="advzone" style="margin-top:12px">
-          <div class="warn">No other device to clone to — run a Scan first so other devices appear.</div>
+          <div class="warn">No other device to clone to — Refresh first so other devices appear.</div>
           <div class="fld"><button id="rs-cancel" class="ghost">← Back</button></div></div>`;
         this.querySelector("#rs-cancel").onclick = closeRestore;
         return;
@@ -2130,7 +2129,8 @@ class TelinkManagerPanel extends HTMLElement {
       if (r && r.ok) {
         this._mstatus(`✅ Done — re-reading ${target}…`, true);
         await this._ws({ type: "telink_manager/read", mac: target }).catch(() => {});
-        this._renderSnapList(mac, view);   // refresh this device's snapshot list
+        closeRestore();                    // hide the restore panel, bring the matrix back
+        this._renderSnapChanges(mac, view); // refresh this device's history matrix
       }
     };
   }

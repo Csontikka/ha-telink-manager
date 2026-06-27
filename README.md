@@ -17,7 +17,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 ## Features
 
-- **Scan** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
+- **Scan / Refresh** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
 - **Friendly names** — assign and persist a human name per device (stored in HA, independent of the device's own BLE name).
 - **Connect & read** — pull the full configuration blob plus device name, comfort thresholds, sensor calibration and bind key.
 - **Write (safe settings)** — device name, comfort zones, RTC clock, LCD/display options, advertising interval, sensor calibration (and reset to factory calibration).
@@ -25,7 +25,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - **Dangerous settings** (clearly flagged, admin-only) — custom MAC address, encryption bind key, factory reset and reboot.
 - **RAW command** — send an arbitrary command to the PVVX config characteristic (for experimentation).
 - **Snapshots / History** — every read and every change is snapshotted server-side automatically (with de-duplication and a history limit). Browse each device's **history** of snapshots, **restore** any snapshot back onto the same device, or **clone** a configuration onto another device (the MAC is never cloned). A safety snapshot of the target is always taken before an overwrite, so any restore is reversible.
-- **Compare & History** — a matrix view comparing the latest config of all snapshotted devices, and a per-device timeline (the **History** / **Changes** view) of every snapshot — all without touching BLE.
+- **Compare & Snapshots** — a matrix view comparing the latest config of all snapshotted devices, and a per-device **Snapshots** matrix showing every snapshot and what changed over time (with restore, clone and delete on each row) — all without touching BLE.
 - **Read all** — a server-side bulk job that reads every device in parallel, grouped by proxy, with retries. It survives page refresh and navigation (progress is polled from the server) so you can walk away and come back.
 - **Battery column** — estimated charge and voltage from the advertisement, colour-coded.
 
@@ -39,11 +39,11 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 ![Device configuration](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_config.png)
 
-**Compare** — every device's settings side by side, differences highlighted (from backups, no connection):
+**Compare** — every device's settings side by side, differences highlighted (from snapshots, no connection):
 
 ![Cross-device compare matrix](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_compare.png)
 
-**Snapshots** — each device's history of full-state snapshots; expand a device for its timeline, with restore, clone and a per-device change matrix (no connection needed):
+**Snapshots** — each device's history as a change matrix; expand a device to see every snapshot and what changed over time, with restore, clone and delete on each row (no connection needed):
 
 ![Per-device snapshots and history](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/panel_backups.png)
 

@@ -140,6 +140,7 @@ def history(hass: HomeAssistant, mac: str) -> list:
                 fields = {}
         out.append(
             {
+                "id": s.get("id"),
                 "ts": s.get("ts"),
                 "device_name": s.get("device_name"),
                 "fw": s.get("fw"),
