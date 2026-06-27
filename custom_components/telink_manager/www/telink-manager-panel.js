@@ -251,9 +251,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#scan").onclick = () => this._scan();
     this.querySelector("#read").onclick = () => this._readSelected();
     this.querySelector("#cancel").onclick = () => this._cancel();
-    // Backups: if a device is selected, open ITS backups directly; otherwise the global picker.
-    this.querySelector("#backups-btn").onclick = () =>
-      this._selected ? this._openDeviceBackups(this._selected) : this._openBackupsModal();
+    this.querySelector("#backups-btn").onclick = () => this._openBackupsModal();
     this.querySelector("#compare-btn").onclick = () => this._openCompareModal();
     this.querySelector("#readall-btn").onclick = () => this._openReadAllDialog();
     this._maybeAutoScan();
