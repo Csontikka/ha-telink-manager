@@ -174,7 +174,12 @@ The only place this integration ever appears in any statistics is Home Assistant
 
 Found a bug or have an idea? [Open an issue](https://github.com/Csontikka/ha-telink-manager/issues) — feedback and feature requests are welcome.
 
-If you find this integration useful, consider [buying me a coffee](https://buymeacoffee.com/Csontikka).
+If any of these sound familiar, consider [buying me a coffee](https://buymeacoffee.com/Csontikka) ☕:
+
+- Saved you a lap around the house to push new settings to every device.
+- Helped you figure out why one thermometer reports half as often as the others.
+- Means you no longer have to explain to your family why you're crawling behind the radiator with a laptop.
+- One integration, zero thermometer safaris.
 
 ## Credits
 

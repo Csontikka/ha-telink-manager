@@ -179,11 +179,22 @@ class TelinkManagerPanel extends HTMLElement {
           box-shadow: 0 0 0 2px var(--tm-accent-soft); }
         input[type=number] { width: 110px; }
         input[type=checkbox] { width: auto; accent-color: var(--tm-accent); }
-        input.fname { width: 130px; }
+        input.fname { flex: 1 1 200px; width: auto; min-width: 140px; max-width: 320px; }
+        input.fname.has-adopt { padding-right: 32px; }
+        .fcell { display: flex; align-items: center; gap: 6px; width: 100%; position: relative; }
+        .adopt { position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+                 display: inline-flex; align-items: center; justify-content: center;
+                 width: 22px; height: 22px; padding: 0; border-radius: 4px; border: none;
+                 background: transparent; color: var(--tm-text-2); cursor: pointer; transition: color .12s; }
+        .adopt:hover { color: var(--tm-accent); }
+        .adopt:active { transform: translateY(-50%) scale(.88); }
+        .adopt svg { width: 15px; height: 15px; fill: currentColor; display: block; }
         .ro .lab { color: #888; } .ro b { color: #bbb; }
         .muted { color: var(--tm-text-2); font-size: 12px; }
         .warn { color: #ff7a7a; font-size: 12px; }
         .topbar { display: flex; align-items: center; justify-content: space-between; }
+        .bmc-wrap { text-align: right; }
+        .bmc-hint { font-size: 10.5px; color: #4a5060; line-height: 1.4; margin-bottom: 5px; }
         .bmc { font-size: 12px; color: var(--tm-text-2); text-decoration: none;
           opacity: .7; padding: 5px 10px; border: 1px solid var(--tm-border);
           border-radius: var(--tm-radius); white-space: nowrap; transition: all .15s; }
@@ -216,9 +227,12 @@ class TelinkManagerPanel extends HTMLElement {
       </style>
       <div class="wrap">
         <div class="topbar">
-          <h1>🌡️ Telink Manager <span class="muted" style="font-size:11px;font-weight:normal">by Csontikka @ 2026</span></h1>
-          <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
-             title="Support the developer — buy me a coffee">☕ Buy me a coffee</a>
+          <h1><svg viewBox="0 0 512 512" style="width:34px;height:34px;vertical-align:middle;margin-right:8px;flex-shrink:0"><circle cx="256" cy="256" r="248" fill="#1a6ea8" opacity="0.18"/><circle cx="256" cy="256" r="216" fill="#1a6ea8"/><circle cx="256" cy="256" r="216" fill="none" stroke="#2ea8d8" stroke-width="10" opacity="0.9"/><circle cx="256" cy="256" r="159" fill="#0d4f7c"/><rect x="236" y="110" width="40" height="185" rx="20" fill="none" stroke="#fff" stroke-width="18"/><circle cx="256" cy="330" r="46" fill="#fff"/><rect x="244" y="170" width="24" height="160" rx="12" fill="#fff"/><line x1="290" y1="155" x2="320" y2="155" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="195" x2="320" y2="195" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="235" x2="320" y2="235" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="275" x2="320" y2="275" stroke="#fff" stroke-width="14" stroke-linecap="round"/></svg>Telink Manager <span class="muted" style="font-size:11px;font-weight:normal">by Csontikka @ 2026</span></h1>
+          <div class="bmc-wrap">
+            <div class="bmc-hint">Saved you a lap around the house<br>to push new settings to every device?</div>
+            <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
+               title="Support the developer — buy me a coffee">☕ Buy me a coffee</a>
+          </div>
         </div>
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px">
           <div>
@@ -445,7 +459,10 @@ class TelinkManagerPanel extends HTMLElement {
       <tbody>${devs.map(d => `
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
           <td><span class="dot ${d.connectable ? "on" : "off"}"></span></td>
-          <td><input class="fname" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}"></td>
+          <td><div class="fcell">
+            <input class="${"fname" + (!d.friend_name && d.ha_name ? " has-adopt" : "")}" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}" title="${escHtml(d.friend_name || d.ha_name || "")}">
+            <span class="adopt" data-mac="${d.mac}" title="${d.ha_name ? `Use Home Assistant name (${escHtml(d.ha_name)})` : ""}" style="${(!d.friend_name && d.ha_name) ? "" : "visibility:hidden"}"><svg viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg></span>
+          </div></td>
           <td>${escHtml(d.name) || "?"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
           <td>${d.proxy ? String(d.proxy).replace(/\s*\(.*\)\s*$/, "") : "—"}</td>
@@ -475,10 +492,33 @@ class TelinkManagerPanel extends HTMLElement {
       });
     this.querySelectorAll("input.fname").forEach(inp => {
       inp.addEventListener("dblclick", (e) => e.stopPropagation());
+      inp.addEventListener("input", () => {
+        inp.title = inp.value || this._ha(inp.dataset.mac) || "";
+        // Show/hide the adopt button based on whether the field is empty (visibility keeps the column width stable).
+        const btn = inp.closest(".fcell").querySelector(".adopt");
+        if (!btn || !this._ha(inp.dataset.mac)) return;
+        const empty = !inp.value;
+        btn.style.visibility = empty ? "visible" : "hidden";
+        inp.classList.toggle("has-adopt", empty);
+      });
       inp.addEventListener("change", () => {
         const m = inp.dataset.mac;
         // Skip the WS round-trip + Store write when the value is unchanged.
         if (inp.value !== (this._names[m] || "")) this._saveName(m, inp.value);
+      });
+    });
+    // "copy the HA name into the friendly field" button (shown only when the field is empty).
+    this.querySelectorAll("span.adopt").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const m = btn.dataset.mac;
+        const name = this._ha(m);
+        if (!name || btn.style.visibility === "hidden") return;
+        const inp = this.querySelector(`input.fname[data-mac="${m}"]`);
+        if (inp) { inp.value = name; inp.title = name; }
+        this._saveName(m, name);
+        btn.style.visibility = "hidden";
+        inp.classList.remove("has-adopt");
       });
     });
   }
