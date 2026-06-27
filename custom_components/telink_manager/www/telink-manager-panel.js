@@ -189,12 +189,12 @@ class TelinkManagerPanel extends HTMLElement {
         .adopt:hover { color: var(--tm-accent); }
         .adopt:active { transform: translateY(-50%) scale(.88); }
         .adopt svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+        .bk-dot { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+        .bk-dot:hover { text-decoration-style: solid; }
         .ro .lab { color: #888; } .ro b { color: #bbb; }
         .muted { color: var(--tm-text-2); font-size: 12px; }
         .warn { color: #ff7a7a; font-size: 12px; }
         .topbar { display: flex; align-items: center; justify-content: space-between; }
-        .bmc-wrap { text-align: right; }
-        .bmc-hint { font-size: 10.5px; color: #4a5060; line-height: 1.4; margin-bottom: 5px; }
         .bmc { font-size: 12px; color: var(--tm-text-2); text-decoration: none;
           opacity: .7; padding: 5px 10px; border: 1px solid var(--tm-border);
           border-radius: var(--tm-radius); white-space: nowrap; transition: all .15s; }
@@ -228,11 +228,8 @@ class TelinkManagerPanel extends HTMLElement {
       <div class="wrap">
         <div class="topbar">
           <h1><svg viewBox="0 0 512 512" style="width:34px;height:34px;vertical-align:middle;margin-right:8px;flex-shrink:0"><circle cx="256" cy="256" r="248" fill="#1a6ea8" opacity="0.18"/><circle cx="256" cy="256" r="216" fill="#1a6ea8"/><circle cx="256" cy="256" r="216" fill="none" stroke="#2ea8d8" stroke-width="10" opacity="0.9"/><circle cx="256" cy="256" r="159" fill="#0d4f7c"/><rect x="236" y="110" width="40" height="185" rx="20" fill="none" stroke="#fff" stroke-width="18"/><circle cx="256" cy="330" r="46" fill="#fff"/><rect x="244" y="170" width="24" height="160" rx="12" fill="#fff"/><line x1="290" y1="155" x2="320" y2="155" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="195" x2="320" y2="195" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="235" x2="320" y2="235" stroke="#fff" stroke-width="14" stroke-linecap="round"/><line x1="290" y1="275" x2="320" y2="275" stroke="#fff" stroke-width="14" stroke-linecap="round"/></svg>Telink Manager <span class="muted" style="font-size:11px;font-weight:normal">by Csontikka @ 2026</span></h1>
-          <div class="bmc-wrap">
-            <div class="bmc-hint">Saved you a lap around the house<br>to push new settings to every device?</div>
-            <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
-               title="Support the developer — buy me a coffee">☕ Buy me a coffee</a>
-          </div>
+          <a class="bmc" href="https://buymeacoffee.com/csontikka" target="_blank" rel="noopener"
+             title="If any of these sound familiar, a coffee would be appreciated!&#10;&#10;• Saved you a lap around the house to push new settings to every device&#10;• Helped figure out why one thermometer reports half as often as the others&#10;• Means you no longer crawl behind the radiator with a laptop&#10;• One integration, zero thermometer safaris">☕ Buy me a coffee</a>
         </div>
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px">
           <div>

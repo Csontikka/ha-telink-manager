@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/Csontikka/ha-telink-manager/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.3"
+  "version": "0.1.4"
 }
