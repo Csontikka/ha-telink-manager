@@ -9,7 +9,7 @@
 
 > **Note:** For the best viewing experience, read this documentation on [GitHub](https://github.com/Csontikka/ha-telink-manager).
 
-A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome / Shelly Bluetooth proxies** (or a local Bluetooth adapter) — no extra hardware, no cloud, no separate app.
+A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome Bluetooth proxies** (with active connections) or a local Bluetooth adapter, with no extra hardware, no cloud, no separate app.
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
@@ -50,7 +50,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 ## Requirements
 
 - Home Assistant **2024.7.0** or newer.
-- At least one working **Bluetooth proxy** (ESPHome `bluetooth_proxy` with `active: true`, or a Shelly Gen2/Plus device acting as a proxy) **or** a local Bluetooth adapter, within range of the thermometers. Writing settings requires an **active**, connectable proxy.
+- At least one **active (connectable) Bluetooth source** within range of the thermometers: an ESPHome `bluetooth_proxy` with `active: true`, or a local Bluetooth adapter. Both reading and writing need an active connection. Passive proxies that only forward advertisements, **including Shelly**, can show a device in the scan list and its battery, but cannot read or write (see [Bluetooth proxies](#bluetooth-proxies)).
 - Thermometers flashed with **PVVX or ATC custom firmware** (stock Xiaomi firmware is not supported).
 
 ### Bluetooth proxies
@@ -58,7 +58,8 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 Reading, and especially **writing**, happens over a GATT **connection** — so the proxy must be able to make **active connections**, not just forward advertisements:
 
 - **ESPHome:** set `active: true` on the `bluetooth_proxy:` component. A passive proxy (`active: false`) can still scan and show battery from advertisements, but **cannot connect or configure** a device.
-- **Shelly Gen2/Plus:** enable its Bluetooth gateway / proxy so Home Assistant can connect through it.
+- **A local Bluetooth adapter** on the Home Assistant host also works, as long as a thermometer is in range.
+- **Shelly proxies do not work for this.** Shelly Gen2/Plus Bluetooth proxies are **passive** (advertisement-only, non-connectable): a Shelly can put a device in the scan list and report its battery, but Home Assistant **cannot open a GATT connection through it**, so you cannot read or write settings over a Shelly. Use an ESPHome `active: true` proxy or a local adapter instead.
 
 A minimal ESPHome proxy:
 
@@ -133,7 +134,7 @@ Most connection problems are **range / Bluetooth-proxy** issues rather than bugs
 
 ### Common issues
 
-- **Scan finds nothing** — you need at least one Bluetooth proxy in range: an ESPHome device with `bluetooth_proxy` and `active: true`, a Shelly Gen2/Plus acting as a proxy, or a local Bluetooth adapter. Check the thermometer is powered and advertising (it should also show up in Home Assistant's normal Bluetooth/BTHome).
+- **Scan finds nothing** — you need at least one active (connectable) Bluetooth source in range: an ESPHome device with `bluetooth_proxy` and `active: true`, or a local Bluetooth adapter. A Shelly proxy is passive only, so it can show devices but cannot connect. Check the thermometer is powered and advertising (it should also show up in Home Assistant's normal Bluetooth/BTHome).
 - **A device won't connect / "Connecting…" times out** — almost always a weak link. Move the thermometer or a proxy closer (aim for better than **-80 dBm** in the RSSI column), make sure the chosen proxy is **active** and connectable, and retry. Writing needs a stronger link than reading.
 - **Write shows "not verified" / a setting didn't stick** — usually the link dropped mid-write; retry with a stronger signal. A few values are clamped or rejected by the firmware itself.
 - **A device "disappears" mid-operation / "no connectable"** — no proxy can reach it right now (out of range or asleep). Bring it closer to a proxy and Scan again.
