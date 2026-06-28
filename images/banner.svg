@@ -24,6 +24,8 @@
     <line x1="288" y1="265" x2="312" y2="265" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
   </g>
 
-  <text x="196" y="126" font-family="Segoe UI, Arial, sans-serif" font-size="46" font-weight="700" fill="#ffffff">Telink Manager</text>
-  <text x="198" y="166" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="400" fill="#9fc7e4">Manage PVVX/ATC-firmware BLE thermometers from Home Assistant</text>
+  <text x="196" y="110" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700" fill="#ffffff">Telink Manager</text>
+  <circle cx="204" cy="142" r="3.4" fill="#2ea8d8"/>
+  <text x="216" y="147" font-family="Segoe UI, Arial, sans-serif" font-size="16"><tspan fill="#8b97a4">by </tspan><tspan fill="#2ea8d8" font-weight="600">Csontikka</tspan></text>
+  <text x="198" y="186" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="400" fill="#9fc7e4">Manage PVVX/ATC-firmware BLE thermometers from Home Assistant</text>
 </svg>
