@@ -1,4 +1,4 @@
-"""Telink Manager — manage PVVX/ATC thermometers from HA over BLE proxies (standalone panel)."""
+"""Telink Manager — manage PVVX-firmware Telink thermometers from HA over BLE (standalone panel)."""
 
 from __future__ import annotations
 

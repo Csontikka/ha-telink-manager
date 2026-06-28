@@ -13,7 +13,7 @@ A Home Assistant admin panel for configuring **Telink BLE thermometers** running
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
-> **This configures thermometers — it does not flash firmware.** Your devices must already be running PVVX or ATC firmware. To convert a stock Xiaomi thermometer, flash it first with the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html); then this panel can read and write its settings.
+> **This configures thermometers — it does not flash firmware.** Reading and writing settings uses the **PVVX** configuration protocol, so your devices must be running **PVVX firmware** (the widely used firmware in the [ATC_MiThermometer](https://github.com/pvvx/ATC_MiThermometer) family). The original **atc1441** firmware uses a different configuration interface and is **not** supported for read/write here. To convert a stock Xiaomi thermometer, or one still on the original ATC firmware, flash it first with the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html); then this panel can read and write its settings.
 
 ## Features
 
@@ -51,7 +51,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 - Home Assistant **2024.7.0** or newer.
 - At least one **active (connectable) Bluetooth source** within range of the thermometers: an ESPHome `bluetooth_proxy` with `active: true`, or a local Bluetooth adapter. Both reading and writing need an active connection. Passive proxies that only forward advertisements, **including Shelly**, can show a device in the scan list and its battery, but cannot read or write (see [Bluetooth proxies](#bluetooth-proxies)).
-- Thermometers flashed with **PVVX or ATC custom firmware** (stock Xiaomi firmware is not supported).
+- Thermometers running **PVVX firmware** (stock Xiaomi firmware is not supported; the original **atc1441** firmware is not supported for configuration either, flash PVVX with the [web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)).
 
 ### Bluetooth proxies
 
@@ -113,12 +113,12 @@ That's it. Open the panel and press **Scan**.
 
 ## Known limitations
 
-- **Configures, doesn't flash.** This panel reads and writes settings on devices already running PVVX/ATC firmware. It cannot flash firmware (use the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)) and does not support stock Xiaomi firmware.
+- **Configures, doesn't flash.** This panel reads and writes settings using the **PVVX** firmware's configuration protocol, so devices must be running **PVVX firmware**. It cannot flash firmware (use the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)), and it does not configure stock Xiaomi firmware or the original **atc1441** firmware (their config interfaces differ from PVVX's).
 - **It is not a sensor integration.** Temperature and humidity reach Home Assistant through the built-in **Bluetooth/BTHome** integration — Telink Manager creates no sensors. It only configures the device.
 - **An active (connectable) proxy is required** to read or write. A passive proxy only forwards advertisements (so you get scan and battery, but no connection) — see [Bluetooth proxies](#bluetooth-proxies).
 - **No BLE pairing / PIN.** Home Assistant's Bluetooth proxies cannot perform BLE pairing, so a device PIN is intentionally not settable here — setting one would lock this panel out, recoverable only with a hardware flasher.
 - **Encrypted advertisements** cannot be decoded without the bind key (this affects the BTHome sensor side, not configuration through this panel).
-- **Validated on the Xiaomi LYWSD03MMC.** Telink Manager talks to the PVVX/ATC firmware's config protocol (the same `0x55` characteristic on every supported device), not a per-model format, so it is expected to work across the wider PVVX/ATC family (MHO-C401, CGG1, CGDK2, …). It is, however, currently field-tested only on the LYWSD03MMC; the one display-specific feature is the temporary LCD overlay, whose number layout targets that screen.
+- **Validated on the Xiaomi LYWSD03MMC.** Telink Manager talks to the **PVVX** firmware's config protocol (the same `0x55` characteristic on every PVVX device), not a per-model format, so it is expected to work across the wider PVVX device family (MHO-C401, CGG1, CGDK2, …). It is, however, currently field-tested only on the LYWSD03MMC; the one display-specific feature is the temporary LCD overlay, whose number layout targets that screen.
 
 ## Removal
 

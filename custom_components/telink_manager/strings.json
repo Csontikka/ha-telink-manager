@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Set up Telink Manager",
-        "description": "This adds the **Telink Manager** panel to the sidebar. From there you can scan, read and configure PVVX/ATC firmware Telink BLE thermometers over your Home Assistant Bluetooth proxies.\n\nNo configuration is required — select **Submit** to add it."
+        "description": "This adds the **Telink Manager** panel to the sidebar. From there you can scan, read and configure Telink BLE thermometers running PVVX firmware (the ATC_MiThermometer family) over your Home Assistant Bluetooth.\n\nNo configuration is required — select **Submit** to add it."
       }
     },
     "abort": {
