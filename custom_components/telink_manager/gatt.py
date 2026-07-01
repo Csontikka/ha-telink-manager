@@ -176,6 +176,39 @@ def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
     return device.name_by_user if device else None
 
 
+def _clean_adv_name(raw: str | None, addr: str) -> str:
+    """Advertised BLE name, or "" if the device doesn't advertise a real one.
+
+    HA falls back to the MAC string when there is no Complete Local Name in the advertisement, and
+    several PVVX adv formats omit it — so the "name" is often just the address. Treat that as no name;
+    the panel then falls back to the real device name we read over GATT (the ble_names cache).
+    """
+    n = (raw or "").strip()
+    if not n or n.upper().replace(":", "") == (addr or "").upper().replace(":", ""):
+        return ""
+    return n
+
+
+async def async_remember_ble_name(hass: HomeAssistant, mac: str, name: str | None) -> None:
+    """Persist (or, if empty, forget) a device's real BLE name in its own store, so the scan list can
+    show it instead of the MAC even before the next connect — independent of the backup history."""
+    mac = mac.upper()
+    name = (name or "").strip()
+    data = hass.data.get(DOMAIN, {})
+    cache = data.setdefault("ble_names", {})
+    if name:
+        if cache.get(mac) == name:
+            return
+        cache[mac] = name
+    else:
+        if mac not in cache:
+            return
+        cache.pop(mac, None)
+    store = data.get("ble_name_store")
+    if store is not None:
+        await store.async_save(cache)
+
+
 async def async_scan(hass: HomeAssistant) -> list[dict]:
     """List discovered Telink (A4:C1:38) thermometers from the HA cache. Does NOT connect."""
     out: list[dict] = []
@@ -190,7 +223,7 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
         out.append(
             {
                 "mac": addr,
-                "name": si.name,
+                "name": _clean_adv_name(si.name, addr),  # "" if it's just the MAC (no advertised name)
                 "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the

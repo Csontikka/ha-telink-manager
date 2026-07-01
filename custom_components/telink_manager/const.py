@@ -26,6 +26,11 @@ TELINK_PREFIX = "A4:C1:38"
 STORAGE_KEY = "telink_manager_names"
 STORAGE_VERSION = 1
 
+# Persisted BLE-name cache (mac -> last device name read over GATT), via HA Store API. Lets the scan
+# list show the real device name instead of the MAC before the next connect. Kept in its own store so
+# it survives even if a device's backup history is deleted.
+BLE_NAME_STORAGE_KEY = "telink_manager_ble_names"
+
 # Persisted per-device full-state backups (mac -> [snapshot, ...]), via HA Store API.
 BACKUP_STORAGE_KEY = "telink_manager_backups"
 BACKUP_LIMIT = 20  # keep at most this many snapshots per device (oldest dropped)

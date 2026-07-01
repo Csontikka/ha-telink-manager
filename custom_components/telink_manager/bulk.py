@@ -69,6 +69,9 @@ async def _read_one(hass: HomeAssistant, j: dict, mac: str) -> dict:
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": repr(e)}
     if r.get("ok"):
+        dn = r["fields"].get("device_name")
+        if dn:  # cache the real BLE name so the scan list stops showing the MAC
+            await gatt.async_remember_ble_name(hass, mac, dn)
         try:
             snap = backups.snapshot_from_fields(hass, mac, r["fields"])
             bk = await backups.async_save(hass, snap)

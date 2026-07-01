@@ -14,6 +14,7 @@ from homeassistant.helpers.storage import Store
 
 from . import backups, websocket_api
 from .const import (
+    BLE_NAME_STORAGE_KEY,
     DOMAIN,
     PANEL_ICON,
     PANEL_TITLE,
@@ -54,6 +55,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await store.async_save(names)
     data["store"] = store
     data["names"] = names or {}
+
+    # 1b) persisted BLE-name cache (mac -> real device name read over GATT). Its own store so the
+    # scan list can show the real name instead of the MAC even after the backup history is cleared.
+    ble_store: Store = Store(hass, STORAGE_VERSION, BLE_NAME_STORAGE_KEY)
+    data["ble_name_store"] = ble_store
+    data["ble_names"] = await ble_store.async_load() or {}
 
     # 2) persisted per-device backups (mac -> [snapshot, ...])
     await backups.async_setup(hass)

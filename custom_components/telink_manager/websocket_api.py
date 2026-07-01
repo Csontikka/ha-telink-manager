@@ -23,9 +23,14 @@ async def ws_proxies(hass: HomeAssistant, connection, msg):
 @websocket_api.async_response
 async def ws_scan(hass: HomeAssistant, connection, msg):
     devices = await gatt.async_scan(hass)
-    names = hass.data.get(DOMAIN, {}).get("names", {})
+    dom = hass.data.get(DOMAIN, {})
+    names = dom.get("names", {})
+    ble_names = dom.get("ble_names", {})
     for d in devices:
         d["friend_name"] = names.get(d["mac"], "")
+        # No advertised name (just the MAC)? Show the real name we read on a previous connect.
+        if not d.get("name"):
+            d["name"] = ble_names.get(d["mac"], "")
     connection.send_result(msg["id"], {"devices": devices})
 
 
@@ -66,6 +71,8 @@ async def ws_set_name(hass: HomeAssistant, connection, msg):
 async def ws_set_device_name(hass: HomeAssistant, connection, msg):
     """Write the device's stored BLE name on the thermometer (command 0x01)."""
     result = await gatt.async_set_name(hass, msg["mac"], msg["name"])
+    if result.get("verified"):  # keep the scan-list cache in sync (empty name -> forget)
+        await gatt.async_remember_ble_name(hass, msg["mac"], msg["name"])
     connection.send_result(msg["id"], result)
 
 
@@ -246,6 +253,9 @@ async def ws_reboot(hass: HomeAssistant, connection, msg):
 async def ws_read(hass: HomeAssistant, connection, msg):
     result = await gatt.async_read(hass, msg["mac"], retries=msg.get("retries", 3))
     if result.get("ok"):
+        dn = result["fields"].get("device_name")
+        if dn:  # cache the real BLE name so the scan list stops showing the MAC
+            await gatt.async_remember_ble_name(hass, msg["mac"], dn)
         try:  # auto-backup the just-read full state (dedup'd inside async_save)
             snap = backups.snapshot_from_fields(hass, msg["mac"], result["fields"])
             result["backup"] = await backups.async_save(hass, snap)

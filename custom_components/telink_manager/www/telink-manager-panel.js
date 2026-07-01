@@ -421,7 +421,7 @@ class TelinkManagerPanel extends HTMLElement {
 
   _sortVal(d, k) {
     switch (k) {
-      case "friendly": return (d.friend_name || "").toLowerCase();
+      case "friendly": return (d.friend_name || d.ha_name || "").toLowerCase();
       case "name": return (d.name || "").toLowerCase();
       case "mac": return d.mac || "";
       case "rssi": return d.rssi == null ? -999 : d.rssi;
@@ -501,7 +501,7 @@ class TelinkManagerPanel extends HTMLElement {
             <input class="${"fname" + (!d.friend_name && d.ha_name ? " has-adopt" : "")}" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}" title="${escHtml(d.friend_name || d.ha_name || "")}">
             <span class="adopt" data-mac="${d.mac}" title="${d.ha_name ? `Use Home Assistant name (${escHtml(d.ha_name)})` : ""}" style="${(!d.friend_name && d.ha_name) ? "" : "visibility:hidden"}"><svg viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg></span>
           </div></td>
-          <td>${escHtml(d.name) || "?"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
+          <td>${escHtml(d.name) || "—"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
           <td>${d.proxy ? String(d.proxy).replace(/\s*\(.*\)\s*$/, "") : "—"}</td>
           <td>${this._battCell(d)}</td>
