@@ -65,6 +65,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 2) persisted per-device backups (mac -> [snapshot, ...])
     await backups.async_setup(hass)
 
+    # 2b) Seed the BLE-name cache from existing history. On a system that already has backups (e.g.
+    # after upgrading to this version), each device's last snapshot already holds its BLE name, so the
+    # scan list can show it right away instead of forcing a reconnect to every device. Only fills
+    # missing entries, and reads the LAST snapshot, so a name the user later cleared is not resurrected.
+    ble_names = data["ble_names"]
+    seeded = False
+    for mac, snaps in (data.get("backups") or {}).items():
+        if mac in ble_names or not snaps:
+            continue
+        dn = snaps[-1].get("device_name")
+        if dn:
+            ble_names[mac] = dn
+            seeded = True
+    if seeded:
+        await ble_store.async_save(ble_names)
+
     # 3) WebSocket commands (telink_manager/scan, /read, /write, ...) — register once.
     if not data.get("_ws_registered"):
         websocket_api.async_register(hass)

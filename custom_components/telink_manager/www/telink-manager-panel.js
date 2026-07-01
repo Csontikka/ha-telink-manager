@@ -621,10 +621,14 @@ class TelinkManagerPanel extends HTMLElement {
       if (!r.ok) { this._modalError(mac, "Read failed: " + r.error); this._status(`Read failed: ${mac}`); return; }
       this._loaded = r.fields;
       this._status(`Read OK: ${mac}`);
-      if (r.backup && typeof r.backup.count === "number") {  // refresh the scan-list Backup column now
-        this._backupMacs.set(mac, r.backup.count);
-        this._renderDevTable();
-      }
+      // Reflect the just-read state in the scan list immediately, so the list column and the modal
+      // title don't wait for a manual Refresh: the freshly-read BLE name (backend cached it too, only
+      // when the device advertised none) and the new backup count.
+      const di = (this._devs || []).find((d) => d.mac === mac);
+      let refreshTable = false;
+      if (di && r.fields && r.fields.device_name && !di.name) { di.name = r.fields.device_name; refreshTable = true; }
+      if (r.backup && typeof r.backup.count === "number") { this._backupMacs.set(mac, r.backup.count); refreshTable = true; }
+      if (refreshTable) this._renderDevTable();
       // Came from a red "no backup" dot: now that the first backup exists, go to its backups screen.
       if (opts.thenBackups) this._openDeviceBackups(mac);
       else this._modalView(mac, r.fields);
