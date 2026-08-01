@@ -5,6 +5,7 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Csontikka/ha-telink-manager?style=plastic)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=plastic)](https://github.com/Csontikka/ha-telink-manager/blob/master/LICENSE)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsor-ea4aaa.svg?style=plastic&logo=githubsponsors)](https://github.com/sponsors/Csontikka)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-donate-yellow.svg?style=plastic)](https://buymeacoffee.com/Csontikka)
 
 > **Note:** For the best viewing experience, read this documentation on [GitHub](https://github.com/Csontikka/ha-telink-manager).
