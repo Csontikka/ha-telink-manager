@@ -763,8 +763,14 @@ class TelinkManagerPanel extends HTMLElement {
   _viewRows(f) {
     const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
     const yn = (b) => (b ? "yes" : "no");
-    const row = (lab, val, tip) =>
-      `<div class="fld"><span class="lab"${t(tip)}>${lab}</span><b>${escHtml(val)}</b></div>`;
+    // `note` is the optional dimmed suffix (e.g. the raw value behind a converted one). It is
+    // escaped here and wrapped by the helper, so no call site has to pass markup into an
+    // escaping sink -- doing that would render the tags as literal text.
+    const row = (lab, val, tip, note) => {
+      const v = escHtml(val);
+      const n = note ? `<span class="muted">${escHtml(note)}</span>` : "";
+      return `<div class="fld"><span class="lab"${t(tip)}>${lab}</span><b>${v}${v && n ? " " : ""}${n}</b></div>`;
+    };
     const h = (s) => `<h3>${s}</h3>`;
     const sign = (n) => (n > 0 ? "+" : "") + n;
     const legacy = f.fw_layout === "legacy";
@@ -800,7 +806,7 @@ class TelinkManagerPanel extends HTMLElement {
       ${row("Averaging to flash", f.averaging === 0 ? "off" : f.averaging, "averaging")}
 
       ${h("Advertising")}
-      ${row("Advertising interval", `${f.adv_interval_s} s <span class="muted">(${f.adv_interval_raw} × 0.0625 s)</span>`, "adv_interval")}
+      ${row("Advertising interval", `${f.adv_interval_s} s`, "adv_interval", `(${f.adv_interval_raw} × 0.0625 s)`)}
       ${row("Advertising type", f.adv_type, "adv_type")}
       ${row("Advertising flags", yn(f.adv_flags), "adv_flags")}
       ${legacy ? "" : row("Pseudo-random delay", `${f.adv_delay_ms} ms`, "adv_delay")}
@@ -811,7 +817,7 @@ class TelinkManagerPanel extends HTMLElement {
       ${h("Radio / connection")}
       ${row("RF TX power", f.rf_tx_power, "tx_power")}
       ${row("Connect latency", `${f.connect_latency_ms} ms`, "connect_latency")}
-      ${row("PIN code", `<span class="muted">flasher only — not editable here</span>`, "pincode")}
+      ${row("PIN code", "", "pincode", "flasher only — not editable here")}
 
       ${h("Sensor calibration")}
       ${f.sensor_name ? row("Sensor chip", sensorChip, "sensor_cal") : ""}
