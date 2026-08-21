@@ -505,7 +505,7 @@ class TelinkManagerPanel extends HTMLElement {
           </div></td>
           <td>${escHtml(d.name) || "—"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
-          <td>${d.proxy ? String(d.proxy).replace(/\s*\(.*\)\s*$/, "") : "—"}</td>
+          <td>${d.proxy ? escHtml(String(d.proxy).replace(/\s*\(.*\)\s*$/, "")) : "—"}</td>
           <td>${this._battCell(d)}</td>
           <td>${this._backupCell(d.mac)}</td>
         </tr>`).join("")}</tbody></table>`;
@@ -688,7 +688,7 @@ class TelinkManagerPanel extends HTMLElement {
       ? `<div class="warn" style="margin-top:8px">Weak signal — connecting over the proxy may be slow or fail.</div>`
       : "";
     this.querySelector("#m-body").innerHTML = `
-      <div class="fld"><span class="lab">Route</span><b>${route}</b></div>
+      <div class="fld"><span class="lab">Route</span><b>${escHtml(route)}</b></div>
       <div class="fld"><span class="lab">Signal</span><span>${this._rssiCell(rssi)}</span></div>
       <div class="fld"><span class="lab">Elapsed</span><b id="m-conn-elapsed">0 s</b></div>
       <div class="muted" style="margin-top:8px">Connecting over a BLE proxy typically takes 5–20 s.</div>
