@@ -68,7 +68,9 @@ const TIPS = {
   raw: "Raw 11-byte configuration block (hex) as read back from the device.",
   firmware: "Firmware version reported by the device (Device Information Service; fallback: the version byte from the 0x55 response).",
   model: "Model number string reported by the device (Device Information Service).",
-  hw_ver: "Hardware revision id reported by the device (read-only).",
+  hw_ver: "Board revision reported by the device, with its temperature/humidity sensor chip (read-only). " +
+    "The firmware detects this at boot, so on some units it can alternate between two adjacent revisions " +
+    "of the same board family (e.g. B1.6 / NB1.6).",
   lcd_refresh: "Minimum time between LCD updates — prevents flicker from rapid sensor changes.",
   lp_meas: "Take sensor measurements in low-power sleep mode (saves battery, slightly less precise/fast).",
   tx_meas: "When BLE-connected, automatically stream all measurements to the client.",
@@ -776,7 +778,7 @@ class TelinkManagerPanel extends HTMLElement {
       ${h("Device")}
       ${row("Firmware", this._fwString(f), "firmware")}
       ${f.model ? row("Model", f.model, "model") : ""}
-      ${f.hw_ver != null ? row("Hardware ver", f.hw_ver, "hw_ver") : ""}
+      ${f.hw_ver != null ? row("Hardware", this._hwString(f), "hw_ver") : ""}
       ${row("Device name (on device)", f.device_name || "—", "device_name")}
       ${row("Device clock", this._clockStr(f.device_time), "device_clock")}
 
@@ -906,6 +908,7 @@ class TelinkManagerPanel extends HTMLElement {
       <div class="ro">
         <div class="fld"><span class="lab"${t("firmware")}>Firmware</span><b>${escHtml(this._fwString(f))}</b></div>
         ${f.model ? `<div class="fld"><span class="lab"${t("model")}>Model</span><b>${escHtml(f.model)}</b></div>` : ""}
+        ${f.hw_ver != null ? `<div class="fld"><span class="lab"${t("hw_ver")}>Hardware</span><b>${escHtml(this._hwString(f))}</b></div>` : ""}
         <div class="fld"><span class="lab"${t("bt5phy")}>BT5 PHY / long range</span><b>${f.bt5phy} / ${f.longrange}</b></div>
         <div class="fld"><span class="lab"${t("adv_crypto")}>Encrypted beacon</span><b>${f.adv_crypto}</b></div>
         <div class="fld"><span class="lab"${t("raw")}>Raw (11 B)</span><b>${escHtml(f.raw)}</b></div>
@@ -1295,6 +1298,13 @@ class TelinkManagerPanel extends HTMLElement {
     });
   }
 
+  _hwString(f) {
+    // Board revision id -> readable name + sensor chip; unknown ids still show the raw value.
+    if (f.hw_ver == null) return "";
+    if (!f.hw_ver_name) return `Unknown (id ${f.hw_ver})`;
+    return f.hw_sensor ? `${f.hw_ver_name} · ${f.hw_sensor}` : f.hw_ver_name;
+  }
+
   _fwString(f) {
     const v = f.fw_version || f.sw_revision ||
       (f.fw_byte_hex ? `byte ${f.fw_byte_hex}` : null);
@@ -1663,6 +1673,11 @@ class TelinkManagerPanel extends HTMLElement {
       { k: "ble", lab: "BLE name", tip: "The device's advertised BLE name (e.g. ATC_xxxx).", get: (r) => r.ble || "" },
       { k: "mac", lab: "MAC", tip: "Bluetooth MAC address.", get: (r) => r.mac },
       { k: "fw", lab: "fw", tip: "PVVX firmware version.", cmp: true, get: (r) => r.fw || "" },
+      // Identity, not a setting: board revisions cannot be made to match, so this stays a context
+      // column (always shown, never flagged as a difference). Deliberately not in _cmpConfigCols(),
+      // which the per-device history matrix also uses — there it would render the firmware's
+      // boot-time B1.6/NB1.6 detection wobble as a change that never happened on the device.
+      { k: "hw", lab: "Hardware", tip: "Board revision detected by the device's firmware, with its temperature/humidity sensor chip. Hardware, not a setting — shown for context, never flagged as a difference.", get: (r) => this._hwString(r.f || {}) },
       ...this._cmpConfigCols(),
       { k: "lastbk", lab: "Last snapshot", tip: "When this device's state was last snapshotted or re-confirmed.", get: (r) => r.last_ts ? this._bkTs(r.last_ts) : "—" },
     ];

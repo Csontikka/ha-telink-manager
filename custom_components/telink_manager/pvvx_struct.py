@@ -32,6 +32,28 @@ the sensor calibration (CMD 0x25: slope + zero offset). Do not write them via 0x
 
 ADV_TYPES = {0: "atc1441", 1: "pvvx", 2: "mi_like", 3: "BTHome"}
 
+# Hardware revision id (byte[9]) -> (board, temperature/humidity sensor chip).
+# Mirrors HW_VERSION_ID in the PVVX firmware (src/app.h). The firmware detects the board at boot,
+# so on some units the value alternates between two adjacent revisions of the same board family
+# (observed live: B1.6 <-> NB1.6) — which is why byte[9] stays excluded from write-verify and dedup.
+HW_VERSIONS = {
+    0: ("LYWSD03MMC B1.4", "SHTV3"),
+    1: ("MHO-C401", "SHTV3"),
+    2: ("CGG1", "SHTV3"),
+    3: ("LYWSD03MMC B1.9", "SHT4x"),
+    4: ("LYWSD03MMC B1.6", "SHT4x"),
+    5: ("LYWSD03MMC B1.7", "SHT4x"),
+    6: ("CGDK2", "SHTV3"),
+    7: ("CGG1-2022", "SHTV3"),
+    8: ("MHO-C401-2022", "SHTV3"),
+    9: ("MJWSD05MMC", "SHT4x"),
+    10: ("LYWSD03MMC B1.5", "SHTV3"),
+    11: ("MHO-C122", "SHTV3"),
+    12: ("MJWSD05MMC-EN", "SHT4x"),
+    13: ("MJWSD06MMC", None),
+    14: ("LYWSD03MMC NB1.6", "SHT4x"),
+}
+
 # Firmware layout cutoffs (BCD version byte), matching TelinkMiFlasher:
 #   fw <  FW_LEGACY_MAX (0x47): byte[2]/[3] = temp/humi offset (legacy)
 #   fw >  FW_MODERN_MIN (0x50): byte[2]/[3] = flg3 / event_adv_cnt (modern)
@@ -119,6 +141,9 @@ def parse(blob: bytes, fw: int = 0) -> dict:
         "hw_ver": blob[9],
         "averaging": blob[10],
     }
+    hw_name, hw_sensor = HW_VERSIONS.get(blob[9], (None, None))
+    out["hw_ver_name"] = hw_name
+    out["hw_sensor"] = hw_sensor
     if legacy:
         out["temp_offset_c"] = _i8(blob[2]) / 10
         out["humi_offset_pct"] = _i8(blob[3]) / 10
