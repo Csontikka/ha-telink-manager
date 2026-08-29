@@ -3,7 +3,7 @@
 ![Telink Manager](https://raw.githubusercontent.com/Csontikka/ha-telink-manager/master/images/banner-v3.png)
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/Csontikka/ha-telink-manager?style=plastic)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=plastic)](https://github.com/Csontikka/ha-telink-manager/blob/master/LICENSE)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsor-ea4aaa.svg?style=plastic&logo=githubsponsors)](https://github.com/sponsors/Csontikka)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-donate-yellow.svg?style=plastic)](https://buymeacoffee.com/Csontikka)
@@ -21,6 +21,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - **Scan / Refresh** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
 - **Friendly names** — assign and persist a human name per device (stored in HA, independent of the device's own BLE name).
 - **Connect & read** — pull the full configuration blob plus device name, comfort thresholds, sensor calibration and bind key.
+- **Hardware detection** — the board revision and its temperature/humidity sensor chip (e.g. `LYWSD03MMC B1.6 · SHT4x`) are decoded from the configuration and shown in the device view and the Compare matrix.
 - **Write (safe settings)** — device name, comfort zones, RTC clock, LCD/display options, advertising interval, sensor calibration (and reset to factory calibration).
 - **Temporary LCD overlay** — push a custom number to the screen without persisting it.
 - **Dangerous settings** (clearly flagged, admin-only) — custom MAC address, encryption bind key, factory reset and reboot.
@@ -81,11 +82,15 @@ Tips:
 
 ### HACS (recommended)
 
-1. Open HACS → **Integrations**.
-2. Click the three-dot menu → **Custom repositories**.
-3. Add `https://github.com/Csontikka/ha-telink-manager` with category **Integration**.
-4. Click **Download**.
-5. Restart Home Assistant.
+Telink Manager is in the [HACS](https://hacs.xyz/) default store, so no custom repository is needed.
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Csontikka&repository=ha-telink-manager&category=integration)
+
+1. Open **HACS** in Home Assistant.
+2. Search for **Telink Manager** and click **Download**.
+3. Restart Home Assistant.
+
+> Installed it earlier as a custom repository? Nothing to do: updates keep working, and the custom repository entry can stay as it is.
 
 ### Manual
 
@@ -93,6 +98,8 @@ Tips:
 2. Restart Home Assistant.
 
 ## Setup
+
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=telink_manager)
 
 1. Go to **Settings → Devices & Services → Add Integration**.
 2. Search for **Telink Manager** and select it.
