@@ -1739,7 +1739,7 @@ class TelinkManagerPanel extends HTMLElement {
       const open = this._covOpen === p.source ? " open" : "";
       return `<th class="cov-px${p.activatable ? " cov-actv" : ""}${open}" data-src="${escHtml(p.source)}" title="Click to list every thermometer this proxy sees">
         <div class="cov-pn">${escHtml(p.name)}</div>
-        <div class="cov-pm"><span class="cov-badge">${KIND[p.kind] || "Other"}</span> <span class="dot ${p.connectable ? "on" : "off"}"></span> ${p.connectable ? "active" : "passive"}</div>
+        <div class="cov-pm" title="Connectable = Telink Manager can open a connection through it. Scan mode is a separate thing: active scanning only asks devices for their scan response (name, extra data), it does not make a proxy connectable."><span class="cov-badge">${KIND[p.kind] || "Other"}</span> <span class="dot ${p.connectable ? "on" : "off"}"></span> ${p.connectable ? "connectable" : "not connectable"}${p.mode ? ` · scan ${escHtml(String(p.mode)).toLowerCase()}` : ""}</div>
         <div class="cov-pm">${alloc}${alloc ? " · " : ""}last ${this._covAge(p.age_s)} · sees ${p.seen}</div>
         ${hint ? `<div class="cov-hint">${hint}</div>` : ""}</th>`;
     }).join("");
