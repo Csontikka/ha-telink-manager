@@ -19,6 +19,14 @@ async def ws_proxies(hass: HomeAssistant, connection, msg):
 
 
 @websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "telink_manager/coverage"})
+@websocket_api.async_response
+async def ws_coverage(hass: HomeAssistant, connection, msg):
+    """Coverage matrix: every scanner/proxy x every Telink thermometer it sees (RSSI). No BLE traffic."""
+    connection.send_result(msg["id"], gatt.async_coverage(hass))
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/scan"})
 @websocket_api.async_response
 async def ws_scan(hass: HomeAssistant, connection, msg):
@@ -400,6 +408,7 @@ def ws_bulk_dismiss(hass: HomeAssistant, connection, msg):
 @callback
 def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_proxies)
+    websocket_api.async_register_command(hass, ws_coverage)
     websocket_api.async_register_command(hass, ws_scan)
     websocket_api.async_register_command(hass, ws_raw)
     websocket_api.async_register_command(hass, ws_read)

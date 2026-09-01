@@ -93,6 +93,117 @@ def async_proxies(hass: HomeAssistant, addr: str) -> dict:
     return {"ok": True, "mac": addr, "scanners": out}
 
 
+def _scanner_kind(scanner) -> str:
+    """Classify a HA Bluetooth scanner by where it comes from: esphome / shelly / local adapter / other.
+
+    Decided from the class's module path, so no optional integration has to be imported here.
+    """
+    mod = f"{type(scanner).__module__}.{type(scanner).__name__}".lower()
+    if "esphome" in mod:
+        return "esphome"
+    if "shelly" in mod:
+        return "shelly"
+    if mod.endswith(".hascanner") or "bluetooth.scanner" in mod or "habluetooth.scanner" in mod:
+        return "local"
+    return "other"
+
+
+def async_coverage(hass: HomeAssistant) -> dict:
+    """Coverage matrix: every scanner (local adapter / ESPHome or Shelly proxy) HA knows about, and which
+    Telink thermometer each one sees at what RSSI. Pure cache read, no BLE traffic.
+
+    Answers two questions the per-device Route column cannot: which proxies could still be brought in
+    (passive ESPHome proxies that only need `active: true`), and which proxy sees which device how well.
+    """
+    # Internal accessor, but the HA Bluetooth integration's own diagnostics use the same one and it has
+    # been stable across releases; every attribute below is read defensively so an older/newer
+    # habluetooth only costs us a column, never the whole view.
+    try:
+        from homeassistant.components.bluetooth import _get_manager
+
+        manager = _get_manager(hass)
+        scanners = list(manager.async_current_scanners())
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": repr(e)}
+
+    dom = hass.data.get(DOMAIN, {})
+    names = dom.get("names", {})
+    ble_names = dom.get("ble_names", {})
+    proxies: list[dict] = []
+    devices: dict[str, dict] = {}
+    for sc in scanners:
+        source = getattr(sc, "source", None) or ""
+        kind = _scanner_kind(sc)
+        connectable = bool(getattr(sc, "connectable", False))
+        alloc = None
+        try:
+            a = manager.async_current_allocations(source) if source else None
+            if a is not None:
+                used = a.allocated
+                used = len(used) if isinstance(used, (list, tuple, set)) else used
+                alloc = {"slots": a.slots, "free": a.free, "used": used}
+        except Exception:  # noqa: BLE001
+            alloc = None
+        try:
+            age = sc.time_since_last_detection()
+        except Exception:  # noqa: BLE001
+            age = None
+        mode = getattr(sc, "current_mode", None)
+        mode = getattr(mode, "name", None) or (str(mode) if mode is not None else None)
+        try:
+            seen_map = dict(sc.discovered_devices_and_advertisement_data)
+        except Exception:  # noqa: BLE001
+            seen_map = {}
+        seen = 0
+        for addr, pair in seen_map.items():
+            addr = (addr or "").upper()
+            if not addr.startswith(TELINK_PREFIX):
+                continue
+            try:
+                dev, adv = pair
+            except Exception:  # noqa: BLE001
+                continue
+            rssi = getattr(adv, "rssi", None)
+            d = devices.get(addr)
+            if d is None:
+                d = devices[addr] = {
+                    "mac": addr,
+                    "name": _clean_adv_name(getattr(dev, "name", None), addr) or ble_names.get(addr, ""),
+                    "friend_name": names.get(addr, ""),
+                    "ha_name": _ha_name(hass, addr),
+                    "rssi": {},
+                }
+            d["rssi"][source] = rssi
+            seen += 1
+        proxies.append(
+            {
+                "source": source,
+                "name": getattr(sc, "name", None) or source,
+                "kind": kind,
+                "connectable": connectable,
+                # A passive ESPHome proxy becomes connectable with `bluetooth_proxy: active: true`;
+                # Shelly proxies are advertisement-only by design and cannot be enabled.
+                "activatable": kind == "esphome" and not connectable,
+                "scanning": bool(getattr(sc, "scanning", True)),
+                "mode": mode,
+                "alloc": alloc,
+                "age_s": round(age, 1) if isinstance(age, (int, float)) else None,
+                "seen": seen,
+            }
+        )
+    connectable_sources = {p["source"] for p in proxies if p["connectable"]}
+    dev_list = []
+    for d in devices.values():
+        act = [r for s, r in d["rssi"].items() if s in connectable_sources and r is not None]
+        anyr = [r for r in d["rssi"].values() if r is not None]
+        d["best_active"] = max(act) if act else None
+        d["best_any"] = max(anyr) if anyr else None
+        dev_list.append(d)
+    proxies.sort(key=lambda p: (not p["connectable"], not p["activatable"], (p["name"] or "").lower()))
+    dev_list.sort(key=lambda d: ((d["friend_name"] or d["ha_name"] or d["name"] or d["mac"]).lower()))
+    return {"ok": True, "proxies": proxies, "devices": dev_list}
+
+
 _BTHOME_UUID = "0000fcd2-0000-1000-8000-00805f9b34fb"
 _ESS_UUID = "0000181a-0000-1000-8000-00805f9b34fb"
 # BTHome v2 object data lengths (bytes) — enough to walk objects to battery (0x01) / voltage (0x0C)

@@ -266,6 +266,37 @@ class TelinkManagerPanel extends HTMLElement {
         @keyframes spin { to { transform: rotate(360deg); } }
         .sig { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; vertical-align: middle; margin-right: 6px; }
         .sig i { width: 3px; border-radius: 1px; display: inline-block; }
+        /* Coverage matrix (proxies x thermometers) */
+        .cov-wrap { overflow: auto; max-height: 62vh; }
+        .cov-wrap table { font-size: 12px; margin-top: 0; }
+        .cov-wrap thead th { text-transform: none; letter-spacing: 0; font-size: 12px; text-align: left; vertical-align: top; }
+        .cov-wrap thead th.cov-dn { z-index: 3; }
+        .cov-dn { position: sticky; left: 0; z-index: 2; background: var(--card-background-color, #1e1e1e);
+          text-align: left; font-weight: 600; white-space: nowrap; }
+        th.cov-px { min-width: 132px; cursor: pointer; border-left: 1px solid var(--tm-border); transition: background .12s; }
+        th.cov-px:hover { background: var(--tm-accent-soft); }
+        th.cov-px.cov-actv { background: color-mix(in srgb, var(--tm-warn) 14%, transparent); }
+        th.cov-px.open { box-shadow: inset 0 -3px 0 var(--tm-accent); }
+        .cov-pn { font-weight: 600; color: var(--tm-text); }
+        .cov-pm { font-size: 11px; margin-top: 2px; white-space: nowrap; color: var(--tm-text-2); }
+        .cov-badge { display: inline-block; background: var(--tm-accent-soft); color: var(--tm-accent);
+          border-radius: 4px; padding: 0 5px; font-size: 10px; font-weight: 600; }
+        .cov-hint { font-size: 11px; color: var(--tm-warn); margin-top: 4px; white-space: normal; max-width: 190px; line-height: 1.3; }
+        .cov-hint code { font-size: 10.5px; }
+        td.cov-c { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; border-left: 1px solid var(--tm-border); }
+        td.cov-none { color: var(--tm-text-2); font-weight: 400; opacity: .5; }
+        .cov-good { background: color-mix(in srgb, var(--tm-ok) 24%, transparent); }
+        .cov-mid { background: color-mix(in srgb, var(--tm-warn) 24%, transparent); }
+        .cov-bad { background: color-mix(in srgb, var(--tm-danger) 24%, transparent); }
+        .cov-gain { color: var(--tm-warn); font-weight: 800; }
+        td.cov-s { border-left: 2px solid var(--tm-border); white-space: nowrap; font-weight: 600; text-align: center; }
+        td.cov-delta { color: var(--tm-warn); }
+        td.cov-bad-t, tr.cov-orphan .cov-dn { color: #ff7a7a; }
+        .cov-detail { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--tm-border); border-radius: var(--tm-radius-lg); font-size: 13px; }
+        .cov-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .cov-chip { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 12px; background: var(--tm-bg-2); }
+        .cov-legend { font-size: 12px; color: var(--tm-text-2); margin-top: 8px; }
+        .cov-legend span { display: inline-block; padding: 0 7px; border-radius: 5px; margin-right: 4px; }
       </style>
       <div class="wrap">
         <div class="topbar">
@@ -285,6 +316,7 @@ class TelinkManagerPanel extends HTMLElement {
             <button id="scan" class="act" title="Re-scan for devices in range">🔄 Refresh</button>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
+            <button id="coverage-btn" class="view" title="Which proxy sees which thermometer at what signal, and which proxies could still be enabled (no connection)">📡 Coverage</button>
             <button id="compare-btn" class="view" title="Compare all sensors' settings side by side (from snapshots, no connection)">📊 Compare</button>
             <button id="backups-btn" class="view" title="Every device's saved snapshots and history (no connection needed)">🗄️ Snapshots</button>
           </div>
@@ -299,6 +331,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#cancel").onclick = () => this._cancel();
     this.querySelector("#backups-btn").onclick = () => this._openSnapshotsModal();
     this.querySelector("#compare-btn").onclick = () => this._openCompareModal();
+    this.querySelector("#coverage-btn").onclick = () => this._openCoverageModal();
     this.querySelector("#readall-btn").onclick = () => this._openReadAllDialog();
     this._maybeAutoScan();
     // Re-attach to a "Read all" that is still running (or just finished) on the BACKEND, so its
@@ -1639,6 +1672,127 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   // ---- Compare: side-by-side config matrix for ALL devices (scan ∪ backups), no connect ----
+  // ---- Coverage: which proxy sees which thermometer, and which proxies could still be enabled ----
+  // Pure cache read on the backend (no BLE traffic), so it can be refreshed freely.
+  async _openCoverageModal() {
+    this._modalShell("📡 Coverage");
+    const modalEl = this.querySelector(".modal");
+    if (modalEl) modalEl.style.width = "min(1150px, 96vw)";
+    this.querySelector("#m-actions").innerHTML = `
+      <button id="cov-refresh" class="ghost">🔄 Refresh</button>
+      <button id="cov-close" class="ghost" style="margin-left:auto">Close</button>`;
+    this.querySelector("#cov-refresh").onclick = () => this._loadCoverage();
+    this.querySelector("#cov-close").onclick = () => this._closeModal();
+    this._covOpen = null;
+    await this._loadCoverage();
+  }
+
+  async _loadCoverage() {
+    this._mstatus("Loading…", true);
+    let r;
+    try { r = await this._ws({ type: "telink_manager/coverage" }); }
+    catch (e) { this._mstatus(`Error: ${escHtml(this._errMsg(e))}`); return; }
+    if (!r || !r.ok) { this._mstatus(`Error: ${escHtml((r && r.error) || "coverage unavailable")}`); return; }
+    this._mstatus("");
+    this._cov = r;
+    this._renderCoverage();
+  }
+
+  _covAge(s) {
+    if (s == null) return "—";
+    if (s < 60) return `${Math.round(s)} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    return `${(s / 3600).toFixed(1)} h`;
+  }
+
+  // Same thresholds as the weak-signal warning elsewhere in the panel: -80 dBm is where connects start failing.
+  _covCls(r) { return r == null ? "" : r >= -70 ? "cov-good" : r >= -80 ? "cov-mid" : "cov-bad"; }
+
+  _covLabel(d) { return d.friend_name || d.ha_name || d.name || d.mac; }
+
+  _renderCoverage() {
+    const body = this.querySelector("#m-body");
+    if (!body) return;
+    const proxies = (this._cov && this._cov.proxies) || [];
+    const devices = (this._cov && this._cov.devices) || [];
+    const KIND = { esphome: "ESPHome", shelly: "Shelly", local: "Adapter", other: "Other" };
+    // Best signal a device could get if the enable-able (passive ESPHome) proxies were switched to active.
+    const bestPossible = (d) => {
+      const vals = proxies.filter((p) => p.connectable || p.activatable).map((p) => d.rssi[p.source]).filter((v) => v != null);
+      return vals.length ? Math.max(...vals) : null;
+    };
+    const nAct = proxies.filter((p) => p.connectable).length;
+    const nActv = proxies.filter((p) => p.activatable).length;
+    const nSilent = proxies.filter((p) => !p.seen).length;
+    const orphans = devices.filter((d) => d.best_active == null).length;
+    if (!proxies.length) {
+      body.innerHTML = `<div class="muted">Home Assistant reports no Bluetooth scanner at all — no local adapter and no proxy. Nothing can be listed.</div>`;
+      return;
+    }
+    const head = proxies.map((p) => {
+      // Our own literal strings; only the proxy name/source are device-supplied and go through escHtml.
+      const hint = p.activatable
+        ? "Passive — set <code>bluetooth_proxy: active: true</code> in its ESPHome config and Telink Manager can connect through it"
+        : (p.kind === "shelly" && !p.connectable) ? "Passive by design — Shelly proxies cannot open connections"
+        : (!p.seen) ? "Sees no thermometer — out of range or offline" : "";
+      const alloc = p.alloc ? `slots ${p.alloc.free}/${p.alloc.slots} free` : "";
+      const open = this._covOpen === p.source ? " open" : "";
+      return `<th class="cov-px${p.activatable ? " cov-actv" : ""}${open}" data-src="${escHtml(p.source)}" title="Click to list every thermometer this proxy sees">
+        <div class="cov-pn">${escHtml(p.name)}</div>
+        <div class="cov-pm"><span class="cov-badge">${KIND[p.kind] || "Other"}</span> <span class="dot ${p.connectable ? "on" : "off"}"></span> ${p.connectable ? "active" : "passive"}</div>
+        <div class="cov-pm">${alloc}${alloc ? " · " : ""}last ${this._covAge(p.age_s)} · sees ${p.seen}</div>
+        ${hint ? `<div class="cov-hint">${hint}</div>` : ""}</th>`;
+    }).join("");
+    const rows = devices.map((d) => {
+      const orphan = d.best_active == null;
+      const bp = bestPossible(d);
+      const tds = proxies.map((p) => {
+        const r = d.rssi[p.source];
+        if (r == null) return `<td class="cov-c cov-none">–</td>`;
+        const gain = p.activatable && (orphan || r > d.best_active) && r === bp;
+        return `<td class="cov-c ${this._covCls(r)}">${r}${gain ? ' <span class="cov-gain" title="With this proxy enabled, this would be the best signal">▲</span>' : ""}</td>`;
+      }).join("");
+      const best = orphan
+        ? `<td class="cov-s cov-bad-t">✗ no active proxy</td>`
+        : `<td class="cov-s ${this._covCls(d.best_active)}">${d.best_active}</td>`;
+      const could = (bp != null && (orphan || bp > d.best_active))
+        ? `<td class="cov-s cov-delta">→ ${bp} if enabled</td>`
+        : `<td class="cov-s muted">–</td>`;
+      return `<tr${orphan ? ' class="cov-orphan"' : ""}><td class="cov-dn">${escHtml(this._covLabel(d))}</td>${tds}${best}${could}</tr>`;
+    }).join("");
+    // Detail strip for the clicked proxy: everything it sees, strongest first (the row-per-proxy view).
+    let detail = "";
+    const op = proxies.find((p) => p.source === this._covOpen);
+    if (op) {
+      const seen = devices.filter((d) => d.rssi[op.source] != null)
+        .map((d) => ({ d, r: d.rssi[op.source] })).sort((a, b) => b.r - a.r);
+      const chips = seen.map(({ d, r }) => {
+        const gain = op.activatable && (d.best_active == null || r > d.best_active);
+        return `<span class="cov-chip ${this._covCls(r)}">${escHtml(this._covLabel(d))} <b>${r}</b>${gain ? ' <span class="cov-gain">▲</span>' : ""}</span>`;
+      }).join("");
+      const gainN = seen.filter(({ d, r }) => op.activatable && (d.best_active == null || r > d.best_active)).length;
+      detail = `<div class="cov-detail"><b>${escHtml(op.name)}</b> <span class="muted">· ${KIND[op.kind] || "Other"} · ${op.connectable ? "active" : "passive"}${op.mode ? ` · scan mode ${escHtml(String(op.mode)).toLowerCase()}` : ""} · sees ${seen.length} thermometer${seen.length === 1 ? "" : "s"}${gainN ? ` · would be the best signal for ${gainN} if enabled` : ""}</span>
+        <div class="cov-chips">${chips || '<span class="muted">sees no thermometer</span>'}</div></div>`;
+    }
+    body.innerHTML = `
+      <div class="muted" style="margin-bottom:8px">${proxies.length} proxies: <b>${nAct} active</b> · ${proxies.length - nAct} passive${nActv ? ` (<b>${nActv} could be enabled</b>)` : ""}${nSilent ? ` · ${nSilent} silent` : ""} · ${devices.length} thermometers${orphans ? ` · <b style="color:#ff7a7a">${orphans} with no active proxy</b>` : ""}</div>
+      <div class="cov-wrap"><table>
+        <thead><tr><th class="cov-dn"></th>${head}<th class="cov-s" style="text-align:center">best<br>active</th><th class="cov-s" style="text-align:center">could<br>be</th></tr></thead>
+        <tbody>${rows || `<tr><td class="muted" colspan="${proxies.length + 3}">No Telink thermometer seen by any scanner.</td></tr>`}</tbody>
+      </table></div>
+      ${detail}
+      <div class="cov-legend"><span class="cov-good">good</span><span class="cov-mid">weak</span><span class="cov-bad">poor</span> RSSI (dBm) per proxy · ▲ = would be the best signal once that proxy is enabled · click a proxy header for its list · "best active" is what a connect uses today, "could be" what enabling the ▲ proxies would give</div>`;
+    this.querySelectorAll("th.cov-px").forEach((th) => th.onclick = () => {
+      const src = th.dataset.src;
+      this._covOpen = this._covOpen === src ? null : src;
+      const sc = this.querySelector(".cov-wrap");
+      const left = sc ? sc.scrollLeft : 0;
+      this._renderCoverage();
+      const sc2 = this.querySelector(".cov-wrap");
+      if (sc2) sc2.scrollLeft = left;
+    });
+  }
+
   async _openCompareModal() {
     this._modalShell("📊 Compare");
     const modalEl = this.querySelector(".modal");
