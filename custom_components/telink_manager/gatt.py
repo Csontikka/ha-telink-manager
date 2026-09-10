@@ -17,7 +17,7 @@ from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from . import blethr, pvvx_struct
+from . import backups, blethr, pvvx_struct
 from .const import (
     CFG_CHAR,
     CMD_BIND_KEY,
@@ -1075,19 +1075,74 @@ async def async_reboot(hass: HomeAssistant, mac: str) -> dict:
     return await _with_client(hass, mac, fn)
 
 
+async def _restore_repeater(hass: HomeAssistant, mac: str, snapshot: dict, parts: list[str]) -> dict:
+    """Restore a repeater snapshot: its radio config, the thermometer it repeats, and that key."""
+
+    async def fn(client):
+        before_fields = None
+        try:
+            before_fields = await blethr.async_read_fields(client)
+        except Exception:  # noqa: BLE001
+            pass
+
+        changes: dict = {}
+        if "config" in parts and snapshot.get("raw"):
+            cfg = blethr.parse_cfg(bytes.fromhex(snapshot["raw"]))
+            changes.update(
+                {
+                    k: cfg[k]
+                    for k in ("temp_F", "rf_tx_power", "scan_interval_ms", "scan_window_min_ms", "scan_window_max_ms")
+                    if k in cfg
+                }
+            )
+        if "ext_mac" in parts and snapshot.get("ext_mac"):
+            changes["ext_mac"] = snapshot["ext_mac"]
+        if "ext_bind_key" in parts and snapshot.get("ext_bind_key"):
+            changes["ext_bind_key"] = snapshot["ext_bind_key"]
+        if not changes:
+            return {"ok": False, "mac": mac, "error": "nothing to restore from this snapshot"}
+        try:
+            written = await blethr.async_apply(client, before_fields or {}, changes)
+        except ValueError as e:
+            return {"ok": False, "mac": mac, "error": str(e)}
+        verified = [v for k, v in written.items() if not k.endswith("_after")]
+        return {
+            "ok": bool(verified) and all(verified),
+            "mac": mac,
+            "parts": {k: v for k, v in written.items() if not k.endswith("_after")},
+            "before_fields": before_fields,
+        }
+
+    return await _with_blethr_client(hass, mac, fn)
+
+
 async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, parts: list[str]) -> dict:
     """Restore selected parts of a snapshot onto target_mac, in one connection.
 
-    `parts` is any subset of: config, device_name, comfort, bind_key, sensor. The MAC is never
-    restored/cloned. Each part is written then verified; per-part ok flags are returned.
+    `parts` is any subset of: config, device_name, comfort, bind_key, sensor for a thermometer, or
+    config, ext_mac, ext_bind_key for a repeater. The MAC is never restored/cloned. Each part is
+    written then verified; per-part ok flags are returned.
+
+    A snapshot is only ever written back onto the same kind of device it came from. The two kinds
+    store different things under the same keys — an 11-byte thermometer config against an 8-byte
+    repeater one — so crossing them would push meaningless bytes into a working device.
     """
     mac = target_mac.upper()
     raw_hex = snapshot.get("raw")
     comfort = snapshot.get("comfort") or {}
     sensor = snapshot.get("sensor") or {}
+    snap_kind = backups.kind_of(snapshot)
+    if snap_kind == backups.KIND_REPEATER:
+        return await _restore_repeater(hass, mac, snapshot, parts)
 
     async def fn(client):
         out: dict = {}
+        if blethr.detect(client):
+            return {
+                "ok": False,
+                "mac": mac,
+                "error": "kind_mismatch: this snapshot is from a thermometer, the target is a repeater",
+            }
 
         # Safety: capture the target's CURRENT full state before overwriting anything, so the
         # caller can save it as a backup (makes every restore/clone reversible — even onto a
@@ -1193,3 +1248,80 @@ async def async_services(hass: HomeAssistant, mac: str, fresh: bool = True) -> d
             return {"ok": False, "mac": mac, "error": repr(e)}
         finally:
             await _safe_disconnect(client)
+
+
+async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 2) -> dict:
+    """Connect, insist the device really is a repeater, then run fn(client).
+
+    Refusing up front matters more here than elsewhere: the repeater commands share opcodes with the
+    thermometer ones, so sending them to the wrong device would not fail cleanly.
+    """
+    mac = mac.upper()
+    last_err = "no attempt"
+    rediscover = False
+    async with _dev_lock(hass, mac):
+        for _ in range(retries + 1):
+            dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
+            if dev is None:
+                last_err = "no_connectable"
+                await asyncio.sleep(5)
+                continue
+            client = None
+            try:
+                client = await asyncio.wait_for(
+                    establish_connection(BleakClientWithServiceCache, dev, mac, use_services_cache=not rediscover),
+                    timeout=25,
+                )
+                if not blethr.detect(client):
+                    if not rediscover:  # maybe just a stale table from before it was reflashed
+                        rediscover = True
+                        try:
+                            await client.clear_cache()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        continue
+                    return {
+                        "ok": False,
+                        "mac": mac,
+                        "error": "kind_mismatch: this device is a thermometer, not a BLE T&H repeater",
+                    }
+                return await fn(client)
+            except Exception as e:  # noqa: BLE001
+                last_err = repr(e)
+                _LOGGER.debug("BLETHR cmd attempt failed %s: %s", mac, last_err)
+            finally:
+                await _safe_disconnect(client)
+            await asyncio.sleep(4)
+    _LOGGER.warning("BLETHR cmd failed for %s after retries: %s", mac, last_err)
+    return {"ok": False, "mac": mac, "error": last_err}
+
+
+async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, changes: dict) -> dict:
+    """Apply changes to a repeater and read the whole device back, so the caller sees the result."""
+
+    async def fn(client):
+        try:
+            written = await blethr.async_apply(client, current, changes)
+        except ValueError as e:
+            return {"ok": False, "mac": mac.upper(), "error": str(e)}
+        fields = await blethr.async_read_fields(client)
+        fields.update(await _read_fw_info(client))
+        verified = [v for k, v in written.items() if not k.endswith("_after")]
+        return {
+            "ok": bool(verified) and all(verified),
+            "mac": mac.upper(),
+            "written": written,
+            "fields": fields,
+        }
+
+    return await _with_blethr_client(hass, mac, fn)
+
+
+async def async_blethr_reboot(hass: HomeAssistant, mac: str) -> dict:
+    """Restart a repeater (it acts on the reboot once the link drops)."""
+
+    async def fn(client):
+        await blethr.async_reboot(client)
+        return {"ok": True, "mac": mac.upper()}
+
+    return await _with_blethr_client(hass, mac, fn)

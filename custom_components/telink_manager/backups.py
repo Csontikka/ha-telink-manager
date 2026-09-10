@@ -19,7 +19,18 @@ from . import pvvx_struct
 from .const import BACKUP_LIMIT, BACKUP_STORAGE_KEY, DOMAIN, STORAGE_VERSION
 
 # Fields that define "different" for dedup (ts / friendly_name / fw / model are excluded).
-_STATE_KEYS = ("raw", "device_name", "comfort", "bind_key", "sensor")
+_STATE_KEYS = ("kind", "raw", "device_name", "comfort", "bind_key", "sensor", "ext_mac", "ext_bind_key")
+
+# A snapshot describes either a thermometer or a BLE T&H repeater. The two store different things
+# under the same `raw` key -- an 11-byte thermometer config against an 8-byte repeater one -- so the
+# kind has to travel with the snapshot and be checked before anything is parsed or written back.
+KIND_THERMOMETER = "thermometer"
+KIND_REPEATER = "repeater"
+
+
+def kind_of(snap: dict) -> str:
+    """The kind of device a snapshot came from. Snapshots taken before repeaters existed have none."""
+    return snap.get("kind") or KIND_THERMOMETER
 
 
 async def async_setup(hass: HomeAssistant) -> None:
@@ -44,6 +55,21 @@ def snapshot_from_fields(hass: HomeAssistant, mac: str, fields: dict) -> dict:
     """Build a full-state snapshot from a read()/loaded fields dict."""
     mac = mac.upper()
     names = hass.data.get(DOMAIN, {}).get("names", {})
+    if fields.get("firmware_family") == "blethr":
+        # A repeater has no comfort zone, no sensor calibration and no writable name. What is worth
+        # keeping is its radio config and, above all, which thermometer it was pointed at.
+        return {
+            "id": uuid.uuid4().hex,
+            "ts": int(time.time()),
+            "mac": mac,
+            "friendly_name": names.get(mac, ""),
+            "kind": KIND_REPEATER,
+            "fw": fields.get("fw_version"),
+            "model": fields.get("model"),
+            "raw": fields.get("raw"),
+            "ext_mac": fields.get("ext_mac"),
+            "ext_bind_key": fields.get("ext_bind_key"),
+        }
     comfort = None
     if fields.get("comfort_t_lo") is not None:
         comfort = {
@@ -65,6 +91,7 @@ def snapshot_from_fields(hass: HomeAssistant, mac: str, fields: dict) -> dict:
         "ts": int(time.time()),
         "mac": mac,
         "friendly_name": names.get(mac, ""),
+        "kind": KIND_THERMOMETER,
         "fw": fields.get("fw_version"),
         "fw_byte": fields.get("fw_byte"),  # needed to re-parse the raw blob exactly (layout cutoff)
         "model": fields.get("model"),
@@ -133,7 +160,7 @@ def history(hass: HomeAssistant, mac: str) -> list:
     out = []
     for s in list_for(hass, mac):
         fields = {}
-        if s.get("raw"):
+        if s.get("raw") and kind_of(s) == KIND_THERMOMETER:
             try:
                 fields = pvvx_struct.parse(bytes.fromhex(s["raw"]), _fw_byte_of(s))
             except Exception:  # noqa: BLE001
@@ -142,6 +169,8 @@ def history(hass: HomeAssistant, mac: str) -> list:
             {
                 "id": s.get("id"),
                 "ts": s.get("ts"),
+                "kind": kind_of(s),
+                "ext_mac": s.get("ext_mac"),
                 "device_name": s.get("device_name"),
                 "fw": s.get("fw"),
                 "comfort": s.get("comfort"),
@@ -164,7 +193,7 @@ def compare(hass: HomeAssistant) -> list:
             continue
         s = lst[-1]
         fields = {}
-        if s.get("raw"):
+        if s.get("raw") and kind_of(s) == KIND_THERMOMETER:
             try:
                 fields = pvvx_struct.parse(bytes.fromhex(s["raw"]), _fw_byte_of(s))
             except Exception:  # noqa: BLE001
@@ -173,6 +202,8 @@ def compare(hass: HomeAssistant) -> list:
             {
                 "mac": mac,
                 "friendly_name": names.get(mac, ""),
+                "kind": kind_of(s),
+                "ext_mac": s.get("ext_mac"),
                 "device_name": s.get("device_name"),
                 "fw": s.get("fw"),
                 "last_ts": s.get("last_seen") or s.get("ts"),

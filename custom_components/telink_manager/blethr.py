@@ -30,6 +30,7 @@ from .const import (
     CMD_EXT_BIND_KEY,
     CMD_EXT_MAC,
     CMD_MAC,
+    CMD_REBOOT,
     CMD_TIME,
     SERVICE_EXTENDED,
 )
@@ -217,3 +218,83 @@ async def async_read_fields(client) -> dict:
         except Exception as e:  # noqa: BLE001
             fields["device_time_error"] = repr(e)
     return fields
+
+
+def _mac_to_le(mac: str) -> bytes:
+    """Text MAC to the six little-endian bytes the firmware expects."""
+    parts = [p for p in mac.replace("-", ":").split(":") if p != ""]
+    if len(parts) != 6:
+        raise ValueError(f"not a MAC address: {mac!r}")
+    return bytes(int(p, 16) for p in reversed(parts))
+
+
+def build_cfg(current: dict, changes: dict) -> bytes:
+    """The 8-byte config payload, current values with `changes` applied, validated.
+
+    Raises ValueError with a readable reason rather than writing something the firmware would
+    silently clamp or reject.
+    """
+    merged = {**current, **changes}
+    rf = int(merged.get("rf_tx_power") or 0)
+    if not _RF_TX_MIN <= rf <= _RF_TX_MAX:
+        raise ValueError(f"RF TX power must be {_RF_TX_MIN}..{_RF_TX_MAX}, got {rf}")
+    interval = int(merged.get("scan_interval_ms") or 0)
+    win_min = int(merged.get("scan_window_min_ms") or 0)
+    win_max = int(merged.get("scan_window_max_ms") or 0)
+    for label, value in (("scan interval", interval), ("scan window min", win_min), ("scan window max", win_max)):
+        if not 0 <= value <= 0xFFFF:
+            raise ValueError(f"{label} must be 0..65535 ms, got {value}")
+    if win_min > win_max:
+        raise ValueError(f"scan window min ({win_min} ms) must not exceed max ({win_max} ms)")
+    flg = 0x01 if merged.get("temp_F") else 0x00
+    return struct.pack("<BBHHH", flg, rf, interval, win_min, win_max)
+
+
+async def async_apply(client, current: dict, changes: dict) -> dict:
+    """Write the requested changes on an open connection and verify each by reading back.
+
+    `current` is the device's last read fields, needed because the config is written as a whole
+    8-byte struct: changing one value means sending the others back unchanged.
+    """
+    out: dict = {}
+    cfg_keys = {"temp_F", "rf_tx_power", "scan_interval_ms", "scan_window_min_ms", "scan_window_max_ms"}
+    async with _Session(client) as session:
+        if cfg_keys & changes.keys():
+            payload = build_cfg(current, changes)
+            await session.cmd(CMD_CFG, payload)
+            after = parse_cfg(await session.cmd(CMD_CFG))
+            out["config"] = all(after.get(k) == {**current, **changes}.get(k) for k in cfg_keys)
+            out["config_after"] = after
+
+        if "ext_mac" in changes:
+            await session.cmd(CMD_EXT_MAC, _mac_to_le(changes["ext_mac"]))
+            reply = await session.cmd(CMD_EXT_MAC)
+            got = _mac_from_le(reply[1:])
+            out["ext_mac"] = got == changes["ext_mac"].upper()
+            out["ext_mac_after"] = got
+
+        if "ext_bind_key" in changes:
+            key_hex = (changes["ext_bind_key"] or "").strip()
+            key = bytes.fromhex(key_hex) if key_hex else b""
+            if key and len(key) != 16:
+                raise ValueError("bind key must be exactly 16 bytes (32 hex characters)")
+            await session.cmd(CMD_EXT_BIND_KEY, key)
+            reply = await session.cmd(CMD_EXT_BIND_KEY)
+            out["ext_bind_key"] = reply[1:17].hex() == key.hex() if key else len(reply[1:17]) != 16
+
+        if "device_time" in changes:
+            reply = await session.cmd(CMD_TIME, struct.pack("<I", int(changes["device_time"]) & 0xFFFFFFFF))
+            got = struct.unpack("<I", reply[1:5])[0] if len(reply) >= 5 else None
+            out["device_time"] = got is not None and abs(got - int(changes["device_time"])) <= 60
+            out["device_time_after"] = got
+    return out
+
+
+async def async_reboot(client) -> dict:
+    """Ask the device to restart when the link drops (same opcode as the thermometer firmware)."""
+    async with _Session(client) as session:
+        try:
+            await session.cmd(CMD_REBOOT, timeout=3)
+        except TimeoutError:
+            pass  # the firmware acts on disconnect and may not answer at all
+    return {"ok": True}

@@ -424,11 +424,37 @@ async def ws_services(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], await gatt.async_services(hass, msg["mac"], msg["fresh"]))
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "telink_manager/blethr_write",
+        vol.Required("mac"): str,
+        vol.Required("current"): dict,
+        vol.Required("changes"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_blethr_write(hass: HomeAssistant, connection, msg):
+    """Write settings on a BLE T&H repeater. `current` is its last read, needed because the
+    config goes to the device as one struct."""
+    connection.send_result(msg["id"], await gatt.async_blethr_write(hass, msg["mac"], msg["current"], msg["changes"]))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "telink_manager/blethr_reboot", vol.Required("mac"): str})
+@websocket_api.async_response
+async def ws_blethr_reboot(hass: HomeAssistant, connection, msg):
+    """Restart a BLE T&H repeater (it acts on the reboot when the link drops)."""
+    connection.send_result(msg["id"], await gatt.async_blethr_reboot(hass, msg["mac"]))
+
+
 @callback
 def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_proxies)
     websocket_api.async_register_command(hass, ws_coverage)
     websocket_api.async_register_command(hass, ws_services)
+    websocket_api.async_register_command(hass, ws_blethr_write)
+    websocket_api.async_register_command(hass, ws_blethr_reboot)
     websocket_api.async_register_command(hass, ws_scan)
     websocket_api.async_register_command(hass, ws_raw)
     websocket_api.async_register_command(hass, ws_read)

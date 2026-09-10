@@ -754,9 +754,44 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#m-body").innerHTML = "";
     this.querySelector("#m-actions").innerHTML = `
       <button id="m-retry">Retry</button>
+      <button id="m-gatt-err" class="ghost">GATT services</button>
       <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`;
     this.querySelector("#m-retry").onclick = () => this._readSelected();
+    // A failed read is exactly when it helps to see what the device really exposes: the wrong
+    // firmware, or a service table Home Assistant cached before the device was reflashed.
+    this.querySelector("#m-gatt-err").onclick = () => this._showGattServices(mac);
     this.querySelector("#m-close").onclick = () => this._closeModal();
+  }
+
+  // Reads the device's real GATT table (dropping any cached copy first) and shows it. Read-only.
+  async _showGattServices(mac) {
+    this._mstatus("Reading the GATT table… (connects, no changes)");
+    let r;
+    try {
+      r = await this._ws({ type: "telink_manager/services", mac, fresh: true });
+    } catch (e) {
+      this._mstatus("❌ " + this._errMsg(e));
+      return;
+    }
+    if (!r || !r.ok) { this._mstatus("❌ " + ((r && r.error) || "failed")); return; }
+    this._mstatus("");
+    const known = { "1f1f": "thermometer commands", ffe1: "repeater commands" };
+    const rows = (r.services || []).map((s) => {
+      const chars = (s.chars || []).map((c) => {
+        const short = String(c.uuid).slice(4, 8).toLowerCase();
+        const tag = known[short] ? ` <span class="tag-rpt">${known[short]}</span>` : "";
+        return `<div class="muted" style="margin-left:16px">${escHtml(c.uuid)} · handle ${c.handle} · ${escHtml((c.properties || []).join(", "))}${tag}</div>`;
+      }).join("");
+      return `<div style="margin-bottom:6px"><b>${escHtml(s.uuid)}</b>${chars}</div>`;
+    }).join("");
+    this.querySelector("#m-body").innerHTML = `
+      <div class="fld"><span class="lab">Advertised name</span><b>${escHtml(r.adv_name || "—")}</b></div>
+      <div class="fld"><span class="lab">Command interface</span><b>${escHtml(r.family || "none recognised")}</b></div>
+      <h3>GATT services</h3>${rows || `<div class="muted">none</div>`}`;
+    this.querySelector("#m-actions").innerHTML = `
+      <button id="m-back" class="ghost" style="margin-left:auto">Back</button>`;
+    this.querySelector("#m-back").onclick = () =>
+      this._loaded ? this._modalView(mac, this._loaded) : this._closeModal();
   }
 
   _openModal(mac, f) {
@@ -922,24 +957,99 @@ class TelinkManagerPanel extends HTMLElement {
     this._mstatus("");          // clear any leftover "Reading…/Writing…" progress
     this.querySelector("#m-title").textContent = this._modalTitle(mac);
     this.querySelector("#m-body").innerHTML = this._viewRows(f);
-    // Editing and the command screen are written against the thermometer protocol, so a repeater
-    // gets a read-only view until its own write path exists. Offering buttons that cannot work
-    // would be worse than not offering them.
-    const readOnly = f && f.firmware_family === "blethr";
-    this.querySelector("#m-actions").innerHTML = readOnly
-      ? `<span class="muted">Read-only for now: this is a BLE T&amp;H repeater, not a thermometer.</span>
-         <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`
-      : `<button id="m-edit">Edit</button>
-      <button id="m-cmds" class="ghost">Commands</button>
+    // The command screen is written against the thermometer protocol, so a repeater gets Edit and
+    // the GATT diagnostic instead of buttons that could not work on it.
+    const isRepeater = f && f.firmware_family === "blethr";
+    this.querySelector("#m-actions").innerHTML = `
+      <button id="m-edit">Edit</button>
+      ${isRepeater
+        ? `<button id="m-gatt" class="ghost">GATT services</button>`
+        : `<button id="m-cmds" class="ghost">Commands</button>`}
       <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`;
-    if (!readOnly) {
-      this.querySelector("#m-edit").onclick = () => this._modalEdit(mac, this._loaded);
-      this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
-    }
+    this.querySelector("#m-edit").onclick = () => this._modalEdit(mac, this._loaded);
+    if (isRepeater) this.querySelector("#m-gatt").onclick = () => this._showGattServices(mac);
+    else this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
     this.querySelector("#m-close").onclick = () => this._closeModal();
   }
 
+  // Editing a repeater is mostly one decision: which thermometer it should follow. Offering that as
+  // a list of the devices already on screen beats retyping a MAC, and rules out pointing it at itself.
+  _modalEditBlethr(mac, f) {
+    const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
+    const label = (d) => `${d.friend_name || d.ha_name || d.name || d.mac} (${d.mac})`;
+    const sources = (this._devs || []).filter((d) => d.mac !== mac && !d.blethr);
+    if (f.ext_mac && !sources.some((d) => d.mac === f.ext_mac)) {
+      sources.unshift({ mac: f.ext_mac, name: f.ext_mac, friend_name: "", ha_name: "" });
+    }
+    const opts = [["", "— none —"]].concat(sources.map((d) => [d.mac, label(d)]));
+    this.querySelector("#m-body").innerHTML = `
+      <h3>Repeats</h3>
+      <div class="fld"><span class="lab"${t("ext_mac")}>Source thermometer</span>
+        <select id="b_ext">${opts.map(([v, txt]) =>
+          `<option value="${escHtml(v)}" ${v === (f.ext_mac || "") ? "selected" : ""}>${escHtml(txt)}</option>`).join("")}</select></div>
+      <div class="fld"><span class="lab"${t("ext_bind_key")}>Source bind key</span>
+        <input type="text" id="b_key" maxlength="32" placeholder="32 hex characters, empty = none"
+               value="${escHtml(f.ext_bind_key || "")}" style="width:290px"></div>
+      <div class="muted" style="margin:2px 0 10px">Only needed when the source thermometer broadcasts encrypted.</div>
+
+      <h3>Display</h3>
+      <div class="fld"><span class="lab">Temperature unit</span>
+        <select id="b_unit"><option value="C" ${f.temp_F ? "" : "selected"}>°C</option><option value="F" ${f.temp_F ? "selected" : ""}>°F</option></select></div>
+
+      <h3>Radio</h3>
+      <div class="fld"><span class="lab"${t("rf_tx_power")}>RF TX power</span>
+        <input type="number" id="b_rf" value="${f.rf_tx_power ?? 169}" min="130" max="191" step="1"></div>
+      <div class="fld"><span class="lab"${t("scan_interval")}>Scan interval (ms)</span>
+        <input type="number" id="b_int" value="${f.scan_interval_ms ?? 0}" min="0" max="65535" step="1"></div>
+      <div class="fld"><span class="lab"${t("scan_window")}>Scan window min (ms)</span>
+        <input type="number" id="b_wmin" value="${f.scan_window_min_ms ?? 0}" min="0" max="65535" step="1"></div>
+      <div class="fld"><span class="lab"${t("scan_window")}>Scan window max (ms)</span>
+        <input type="number" id="b_wmax" value="${f.scan_window_max_ms ?? 0}" min="0" max="65535" step="1"></div>`;
+    this.querySelector("#m-actions").innerHTML = `
+      <button id="b-save">Save</button>
+      <button id="b-clock" class="ghost">Set clock</button>
+      <button id="b-reboot" class="ghost">Reboot</button>
+      <button id="b-cancel" class="cancel" style="margin-left:auto">Cancel</button>`;
+    this.querySelector("#b-cancel").onclick = () => this._modalView(mac, this._loaded);
+    this.querySelector("#b-save").onclick = async () => {
+      const changes = {};
+      const ext = this.querySelector("#b_ext").value;
+      if (ext !== (f.ext_mac || "")) changes.ext_mac = ext;
+      const key = this.querySelector("#b_key").value.trim();
+      if (key !== (f.ext_bind_key || "")) changes.ext_bind_key = key;
+      const unitF = this.querySelector("#b_unit").value === "F";
+      if (unitF !== !!f.temp_F) changes.temp_F = unitF;
+      for (const [id, field] of [["b_rf", "rf_tx_power"], ["b_int", "scan_interval_ms"],
+                                 ["b_wmin", "scan_window_min_ms"], ["b_wmax", "scan_window_max_ms"]]) {
+        const v = parseInt(this.querySelector("#" + id).value, 10);
+        if (Number.isFinite(v) && v !== f[field]) changes[field] = v;
+      }
+      if (!Object.keys(changes).length) { this._mstatus("Nothing changed."); return; }
+      if (changes.ext_mac === "") {
+        if (!(await this._confirm("Clear the source thermometer? The repeater will have nothing to show.",
+                                  { okText: "Clear" }))) return;
+      }
+      const r = await this._runCmd("Writing repeater settings…",
+        { type: "telink_manager/blethr_write", mac, current: f, changes },
+        () => "✅ Repeater settings written.");
+      if (r && r.ok && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); this._autoBackup(mac); }
+    };
+    this.querySelector("#b-clock").onclick = async () => {
+      const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+      const r = await this._runCmd("Setting clock…",
+        { type: "telink_manager/blethr_write", mac, current: f, changes: { device_time: ts } },
+        () => "✅ Clock set.");
+      if (r && r.ok && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); }
+    };
+    this.querySelector("#b-reboot").onclick = async () => {
+      if (!(await this._confirm("Reboot this repeater? It restarts when the connection closes.",
+                                { okText: "Reboot" }))) return;
+      await this._runCmd("Rebooting…", { type: "telink_manager/blethr_reboot", mac }, () => "✅ Reboot sent.");
+    };
+  }
+
   _modalEdit(mac, f) {
+    if (f && f.firmware_family === "blethr") return this._modalEditBlethr(mac, f);
     const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
     const num = (id, val, min, max, step) =>
       `<input type="number" id="${id}" value="${val}" min="${min}" max="${max}" step="${step}">`;
