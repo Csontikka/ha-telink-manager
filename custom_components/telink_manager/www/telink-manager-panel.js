@@ -282,6 +282,8 @@ class TelinkManagerPanel extends HTMLElement {
         .cov-badge { display: inline-block; background: var(--tm-accent-soft); color: var(--tm-accent);
           border-radius: 4px; padding: 0 5px; font-size: 10px; font-weight: 600; }
         .cov-hint { font-size: 11px; color: var(--tm-warn); margin-top: 4px; white-space: normal; max-width: 190px; line-height: 1.3; }
+        .tag-rpt { font-size: 10px; padding: 1px 5px; border-radius: 8px; cursor: help; vertical-align: middle;
+                   background: var(--tm-accent-soft); color: var(--tm-accent); }
         .cov-stale { color: var(--tm-warn); font-weight: 600; }
         .dot.stale { background: var(--tm-warn); }
         .cov-hint code { font-size: 10.5px; }
@@ -538,7 +540,7 @@ class TelinkManagerPanel extends HTMLElement {
             <input class="${"fname" + (!d.friend_name && d.ha_name ? " has-adopt" : "")}" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}" title="${escHtml(d.friend_name || d.ha_name || "")}">
             <span class="adopt" data-mac="${d.mac}" title="${d.ha_name ? `Use Home Assistant name (${escHtml(d.ha_name)})` : ""}" style="${(!d.friend_name && d.ha_name) ? "" : "visibility:hidden"}"><svg viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg></span>
           </div></td>
-          <td>${escHtml(d.name) || "—"}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
+          <td>${escHtml(d.name) || "—"}${d.blethr ? ` <span class="tag-rpt" title="BLE T&amp;H repeater (BLETHR firmware). It shows and rebroadcasts another thermometer's reading rather than measuring anything itself.">repeater</span>` : ""}</td><td>${escHtml(d.mac)}</td><td>${this._rssiCell(d.rssi)}</td>
           
           <td>${d.proxy ? escHtml(String(d.proxy).replace(/\s*\(.*\)\s*$/, "")) : "—"}</td>
           <td>${this._battCell(d)}</td>
@@ -795,7 +797,55 @@ class TelinkManagerPanel extends HTMLElement {
       this._status("Finishing the connection safely in the background — Connect to this device re-enables in a few seconds.");
   }
 
+  // A BLETHR repeater is not a thermometer, so almost none of the thermometer rows apply to it.
+  // What matters instead is which device it repeats, and whether that device is one we know.
+  _viewRowsBlethr(f) {
+    const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
+    const row = (lab, val, tip, note) => {
+      const v = escHtml(val);
+      const n = note ? `<span class="muted">${escHtml(note)}</span>` : "";
+      return `<div class="fld"><span class="lab"${t(tip)}>${lab}</span><b>${v}${v && n ? " " : ""}${n}</b></div>`;
+    };
+    const h = (s) => `<h3>${s}</h3>`;
+    const ms = (v) => (v == null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(v % 1000 ? 2 : 0)} s` : `${v} ms`);
+
+    // Match the repeated MAC against the scan list, so the answer is a name and a signal rather
+    // than a second address the reader has to go and look up.
+    const src = (this._devs || []).find((d) => d.mac === f.ext_mac);
+    const srcLabel = !f.ext_mac || /^(00:){5}00$/.test(f.ext_mac)
+      ? "not set — this repeater has nothing to show"
+      : src
+      ? `${src.friend_name || src.ha_name || src.name || f.ext_mac} (${f.ext_mac})`
+      : `${f.ext_mac} — not in this fleet`;
+    const srcNote = src ? `${src.rssi} dBm${src.battery != null ? `, battery ${src.battery}%` : ""}` : "";
+
+    return `<div class="ro">
+      ${h("Repeater")}
+      ${row("Firmware", `BLETHR v${f.fw_version || "?"}`, "firmware", f.fw_revision || "")}
+      ${f.model ? row("Board", f.model, "model") : ""}
+      ${row("Device name (on device)", `STH_${(f.mac || "").replace(/:/g, "").slice(-6)}`, "device_name", "fixed by the firmware")}
+      ${row("Device clock", this._clockStr(f.device_time), "device_clock")}
+
+      ${h("Repeats")}
+      ${row("Source thermometer", srcLabel, "ext_mac", srcNote)}
+      ${row("Source bind key", f.ext_bind_key_set ? "set" : "not set — source broadcasts unencrypted", "ext_bind_key")}
+
+      ${h("Display")}
+      ${row("Temperature unit", f.temp_F ? "°F" : "°C", "temp_F")}
+
+      ${h("Radio")}
+      ${row("RF TX power", f.rf_tx_power != null ? String(f.rf_tx_power) : "—", "rf_tx_power")}
+      ${row("Scan interval", ms(f.scan_interval_ms), "scan_interval")}
+      ${row("Scan window", `${ms(f.scan_window_min_ms)} … ${ms(f.scan_window_max_ms)}`, "scan_window")}
+      ${row("Services", (f.services || []).join(", ") || "—", "services")}
+
+      ${h("Raw")}
+      ${row("Config (8 B)", f.raw || "—", "raw")}
+    </div>`;
+  }
+
   _viewRows(f) {
+    if (f && f.firmware_family === "blethr") return this._viewRowsBlethr(f);
     const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
     const yn = (b) => (b ? "yes" : "no");
     // `note` is the optional dimmed suffix (e.g. the raw value behind a converted one). It is
@@ -872,12 +922,20 @@ class TelinkManagerPanel extends HTMLElement {
     this._mstatus("");          // clear any leftover "Reading…/Writing…" progress
     this.querySelector("#m-title").textContent = this._modalTitle(mac);
     this.querySelector("#m-body").innerHTML = this._viewRows(f);
-    this.querySelector("#m-actions").innerHTML = `
-      <button id="m-edit">Edit</button>
+    // Editing and the command screen are written against the thermometer protocol, so a repeater
+    // gets a read-only view until its own write path exists. Offering buttons that cannot work
+    // would be worse than not offering them.
+    const readOnly = f && f.firmware_family === "blethr";
+    this.querySelector("#m-actions").innerHTML = readOnly
+      ? `<span class="muted">Read-only for now: this is a BLE T&amp;H repeater, not a thermometer.</span>
+         <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`
+      : `<button id="m-edit">Edit</button>
       <button id="m-cmds" class="ghost">Commands</button>
       <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`;
-    this.querySelector("#m-edit").onclick = () => this._modalEdit(mac, this._loaded);
-    this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
+    if (!readOnly) {
+      this.querySelector("#m-edit").onclick = () => this._modalEdit(mac, this._loaded);
+      this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
+    }
     this.querySelector("#m-close").onclick = () => this._closeModal();
   }
 
@@ -1301,6 +1359,14 @@ class TelinkManagerPanel extends HTMLElement {
 
   _clockStr(epoch) {
     if (!epoch) return "—";
+    // A device whose clock was never set counts seconds up from zero, so it lands in 1970 and the
+    // "decades behind" phrasing reads like a fault. Anything inside the first year is that counter,
+    // not a wall clock: say so, and say how long it has been running instead.
+    if (epoch < 365 * 24 * 3600) {
+      const h = Math.floor(epoch / 3600);
+      const m = Math.floor((epoch % 3600) / 60);
+      return `not set (running ${h ? `${h} h ` : ""}${m} min)`;
+    }
     return `${this._fmtClock(epoch)} (${this._clockDiff(epoch)})`;
   }
 

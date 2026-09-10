@@ -17,7 +17,7 @@ from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from . import pvvx_struct
+from . import blethr, pvvx_struct
 from .const import (
     CFG_CHAR,
     CMD_BIND_KEY,
@@ -31,6 +31,9 @@ from .const import (
     CMD_SENSOR,
     CMD_SENSOR_DEF,
     CMD_TIME,
+    DIS_FW_REV,
+    DIS_MODEL,
+    DIS_SW_REV,
     DOMAIN,
     TELINK_PREFIX,
 )
@@ -351,6 +354,9 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
             {
                 "mac": addr,
                 "name": _clean_adv_name(si.name, addr),  # "" if it's just the MAC (no advertised name)
+                # Hint only, from the advertisement: BLETHR repeaters name themselves after their MAC
+                # and cannot be renamed. Confirmed for real on connect, where the service decides.
+                "blethr": blethr.looks_like_blethr(si.name, addr),
                 "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the
@@ -385,10 +391,7 @@ async def _safe_disconnect(client) -> bool:
     return not client.is_connected
 
 
-# Standard Device Information Service characteristics (for the firmware version).
-DIS_FW_REV = "00002a26-0000-1000-8000-00805f9b34fb"  # Firmware Revision String
-DIS_SW_REV = "00002a28-0000-1000-8000-00805f9b34fb"  # Software Revision String
-DIS_MODEL = "00002a24-0000-1000-8000-00805f9b34fb"  # Model Number String
+# The Device Information Service UUIDs now live in const.py, shared with the BLETHR reader.
 
 
 async def _read_raw(client) -> bytes:
@@ -570,10 +573,31 @@ async def _read_all_fields(client) -> dict:
     return fields
 
 
+def _command_family(client) -> str | None:
+    """Which command interface the connected device actually exposes.
+
+    "blethr" for a BLE T&H repeater, "pvvx" for a thermometer, None when the service table shows
+    neither — which in practice means the table is a stale cache from before a reflash.
+    """
+    if blethr.detect(client):
+        return "blethr"
+    try:
+        if client.services.get_characteristic(CFG_CHAR) is not None:
+            return "pvvx"
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
     """Connect via proxy -> read config -> safe disconnect. Returns parsed fields."""
     mac = mac.upper()
     last_err = "no attempt"
+    # Home Assistant caches each device's GATT table. Reflashing a device to different firmware moves
+    # the command characteristic, and the cached table then points at a handle that no longer exists,
+    # which surfaces as a bare "invalid handle". Detecting that once and rediscovering is cheaper than
+    # making every caller guess.
+    rediscover = False
     async with _dev_lock(hass, mac):
         for _ in range(retries):
             dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
@@ -583,14 +607,45 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 continue
             client = None
             try:
-                client = await asyncio.wait_for(establish_connection(BleakClientWithServiceCache, dev, mac), timeout=25)
+                client = await asyncio.wait_for(
+                    establish_connection(BleakClientWithServiceCache, dev, mac, use_services_cache=not rediscover),
+                    timeout=25,
+                )
+                family = _command_family(client)
+                # A stale table still lists the *old* firmware's characteristic, so "neither is
+                # present" is not enough to catch it. The advertised name is: only BLETHR produces
+                # "STH_" + MAC, so a device advertising that while the table offers no BLETHR
+                # service is being described by a cache from before it was reflashed.
+                expected = "blethr" if blethr.looks_like_blethr(getattr(dev, "name", None), mac) else None
+                if not rediscover and (family is None or (expected and family != expected)):
+                    last_err = f"cached GATT table looks stale (offers {family or 'nothing'})"
+                    rediscover = True
+                    try:
+                        await client.clear_cache()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue
+                # Which firmware answered decides how to talk to it. A repeater carries its commands
+                # on its own characteristic, so reading it as a thermometer only ever fails.
+                if family == "blethr":
+                    fields = await blethr.async_read_fields(client)
+                    fields.update(await _read_fw_info(client))
+                    return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)
-                return {"ok": True, "mac": mac, "fields": fields}
+                return {"ok": True, "mac": mac, "firmware": "pvvx", "fields": fields}
             except Exception as e:  # noqa: BLE001
                 last_err = repr(e)
                 # Per-attempt failures are routine over BLE proxies (out of range / busy); log at
                 # debug to avoid spamming the log during bulk reads. Final failure logged below.
                 _LOGGER.debug("PVVX read attempt failed %s: %s", mac, last_err)
+                # If talking to it failed at all, stop trusting the cached description of it. One
+                # rediscovery costs a little time; believing a stale table costs every attempt.
+                if not rediscover:
+                    rediscover = True
+                    try:
+                        await client.clear_cache()
+                    except Exception:  # noqa: BLE001
+                        pass
             finally:
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
@@ -1091,3 +1146,50 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
         return {"ok": all(out.values()) if out else False, "mac": mac, "parts": out, "before_fields": before_fields}
 
     return await _with_client(hass, mac, fn)
+
+
+async def async_services(hass: HomeAssistant, mac: str, fresh: bool = True) -> dict:
+    """Diagnostic: the GATT service/characteristic table the device actually exposes.
+
+    Answers "what firmware is really on this thing" when a read fails for reasons the error text
+    does not explain, and shows at a glance whether Home Assistant is holding a stale table.
+    """
+    mac = mac.upper()
+    async with _dev_lock(hass, mac):
+        dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
+        if dev is None:
+            return {"ok": False, "mac": mac, "error": "no_connectable"}
+        client = None
+        try:
+            client = await asyncio.wait_for(
+                establish_connection(BleakClientWithServiceCache, dev, mac, use_services_cache=not fresh),
+                timeout=25,
+            )
+            if fresh:
+                try:
+                    await client.clear_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+            out = []
+            for service in client.services:
+                chars = []
+                for char in service.characteristics:
+                    chars.append(
+                        {
+                            "uuid": str(char.uuid),
+                            "handle": getattr(char, "handle", None),
+                            "properties": list(getattr(char, "properties", ()) or ()),
+                        }
+                    )
+                out.append({"uuid": str(service.uuid), "handle": getattr(service, "handle", None), "chars": chars})
+            return {
+                "ok": True,
+                "mac": mac,
+                "adv_name": getattr(dev, "name", None),
+                "family": _command_family(client),
+                "services": out,
+            }
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "mac": mac, "error": repr(e)}
+        finally:
+            await _safe_disconnect(client)

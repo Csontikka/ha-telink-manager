@@ -19,6 +19,23 @@ CMD_BIND_KEY = 0x18  # encryption bind key read (no payload) / set (exactly 16 B
 CMD_FACTORY_RESET = 0x56  # reset all config to firmware defaults; reply = fresh config blob
 CMD_REBOOT = 0x72  # reboot the device (executed on disconnect; no payload)
 
+# Standard Device Information Service characteristics (firmware / model strings).
+DIS_FW_REV = "00002a26-0000-1000-8000-00805f9b34fb"  # Firmware Revision String
+DIS_SW_REV = "00002a28-0000-1000-8000-00805f9b34fb"  # Software Revision String
+DIS_MODEL = "00002a24-0000-1000-8000-00805f9b34fb"  # Model Number String
+
+# PVVX BLETHR ("BLE T&H repeater") firmware. Same command framing as the thermometers above, but it
+# listens on the SPP-style characteristic instead of 0x1F1F and answers by notification, not by read.
+BLETHR_SERVICE = "0000ffe0-0000-1000-8000-00805f9b34fb"
+BLETHR_CHAR = "0000ffe1-0000-1000-8000-00805f9b34fb"
+# The firmware builds its advertised name in code as "STH_" + the last three MAC bytes and offers no
+# command to change it, so the name is a dependable hint before we ever open a connection.
+BLETHR_NAME_PREFIX = "STH_"
+CMD_DEV_ID = 0x00  # device info: revision, hw/sw version, sensor type, services bitmask
+CMD_EXT_MAC = 0x58  # BLETHR: MAC of the thermometer whose data this device repeats
+CMD_EXT_BIND_KEY = 0x5C  # BLETHR: bind key of that thermometer
+SERVICE_EXTENDED = 0x80000000  # "scan device" bit in the services bitmask — marks the repeater
+
 # MAC prefix of flashable Telink thermometers
 TELINK_PREFIX = "A4:C1:38"
 

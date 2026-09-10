@@ -410,10 +410,25 @@ def ws_bulk_dismiss(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], bulk.dismiss(hass))
 
 
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "telink_manager/services",
+        vol.Required("mac"): str,
+        vol.Optional("fresh", default=True): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_services(hass: HomeAssistant, connection, msg):
+    """Diagnostic: list the device's GATT services, optionally after dropping the cached table."""
+    connection.send_result(msg["id"], await gatt.async_services(hass, msg["mac"], msg["fresh"]))
+
+
 @callback
 def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_proxies)
     websocket_api.async_register_command(hass, ws_coverage)
+    websocket_api.async_register_command(hass, ws_services)
     websocket_api.async_register_command(hass, ws_scan)
     websocket_api.async_register_command(hass, ws_raw)
     websocket_api.async_register_command(hass, ws_read)
