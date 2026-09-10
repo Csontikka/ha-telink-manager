@@ -278,14 +278,29 @@ def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
     ponytail: the scan only feeds Telink-OUI (A4:C1:38) MACs, so the matched device IS this
     thermometer — no extra device-type guard needed. Match both MAC cases: integrations store the
     bluetooth connection in upper or lower case (format_mac lower-cases; BTHome stores upper).
+
+    A BLE connection stopped being unique across config entries, so the same thermometer can hold
+    more than one device entry (its BTHome device, say, plus another integration's). `async_get_devices`
+    is the lookup that admits this and returns all of them, which also lets us pick the entry that
+    actually carries a user-given name instead of whichever one comes back first. It does not exist
+    on the older cores this integration still supports, so those keep to the single-device lookup
+    that is only deprecated on newer ones.
     """
+    wanted = {(dr.CONNECTION_BLUETOOTH, mac), (dr.CONNECTION_BLUETOOTH, dr.format_mac(mac))}
     try:
-        device = dr.async_get(hass).async_get_device(
-            connections={(dr.CONNECTION_BLUETOOTH, mac), (dr.CONNECTION_BLUETOOTH, dr.format_mac(mac))}
-        )
+        registry = dr.async_get(hass)
+        get_all = getattr(registry, "async_get_devices", None)
+        if get_all is not None:
+            devices = get_all(connections=wanted)
+        else:
+            device = registry.async_get_device(connections=wanted)
+            devices = [device] if device else []
     except Exception:  # noqa: BLE001
         return None
-    return device.name_by_user if device else None
+    for device in devices:
+        if device.name_by_user:
+            return device.name_by_user
+    return None
 
 
 def _clean_adv_name(raw: str | None, addr: str) -> str:
