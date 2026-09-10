@@ -33,9 +33,17 @@ the sensor calibration (CMD 0x25: slope + zero offset). Do not write them via 0x
 ADV_TYPES = {0: "atc1441", 1: "pvvx", 2: "mi_like", 3: "BTHome"}
 
 # Hardware revision id (byte[9]) -> (board, temperature/humidity sensor chip).
-# Mirrors HW_VERSION_ID in the PVVX firmware (src/app.h). The firmware detects the board at boot,
-# so on some units the value alternates between two adjacent revisions of the same board family
-# (observed live: B1.6 <-> NB1.6) — which is why byte[9] stays excluded from write-verify and dedup.
+#
+# The firmware fills byte[9] from one of two id spaces, and they do not overlap:
+#   0..14  the classic HW_VERSION_ID enum (src/app.h) used by the Xiaomi/Qingping boards. The
+#          firmware detects the board at boot, so on some units the value alternates between two
+#          adjacent revisions of the same family (observed live: B1.6 <-> NB1.6) — which is why
+#          byte[9] stays excluded from write-verify and dedup. (HW_VER_EXTENDED = 15 is a marker.)
+#   16..   the DEVICE_TYPE constant from src/app_config.h, written verbatim on every newer board:
+#          `.hw_ver = DEVICE_TYPE` in src/app.c. Verified live on TS0201 Wing units (id 52, fw v5.9),
+#          whose firmware defaults matched the source exactly.
+# The sensor chip here is only a hint from the pvvx source; the real one is read from the sensor
+# calibration blob (CMD 0x25) and reported separately as `sensor_name`.
 HW_VERSIONS = {
     0: ("LYWSD03MMC B1.4", "SHTV3"),
     1: ("MHO-C401", "SHTV3"),
@@ -52,6 +60,29 @@ HW_VERSIONS = {
     12: ("MJWSD05MMC-EN", "SHT4x"),
     13: ("MJWSD06MMC", None),
     14: ("LYWSD03MMC NB1.6", "SHT4x"),
+    # --- DEVICE_TYPE id space (src/app_config.h), only the boards the firmware actually builds ---
+    16: ("TB-03F-Kit (DIY)", None),
+    17: ("TS0201", None),
+    18: ("TNK01 water tank (DIY)", None),
+    22: ("TH03Z", None),
+    27: ("ZTH01", None),
+    28: ("ZTH02", None),
+    29: ("PLM1 plant monitor", None),
+    30: ("ZTH03", None),
+    31: ("LKTMZL02", None),
+    33: ("ZTH05Z", "AHT30"),
+    35: ("CB3S button (TS0041)", None),
+    36: ("HS09 (TS0201)", None),
+    37: ("ZY-ZTH02", "SHT30/CHT832x"),
+    38: ("ZY-ZTH02Pro", "SHT30/CHT832x"),
+    39: ("ZG-227Z", "AHT20"),
+    44: ("ZG-303Z plant monitor", "AHT20"),
+    45: ("ZBEACON-TH01", "SHT4x"),
+    46: ("ZigBee-MC", "CHT8305"),
+    47: ("ZBEACON-TH01 v2.0", "SHT4x/G40"),
+    49: ("LYWSD02MMC", None),
+    51: ("ZG-204ZV", None),
+    52: ("TS0201 Wing", "SHT30"),
 }
 
 # Firmware layout cutoffs (BCD version byte), matching TelinkMiFlasher:

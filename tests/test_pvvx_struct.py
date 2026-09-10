@@ -180,3 +180,45 @@ def test_build_more_validation_errors(changes):
     fw = 0x40 if "humi_offset_pct" in changes else FW_MODERN
     with pytest.raises(ValueError):
         pvvx_struct.build(MODERN, changes, fw=fw)
+
+
+# --- hardware id table -------------------------------------------------------------------------
+# byte[9] carries two id spaces that never overlap: the classic HW_VERSION_ID enum (0..14) for the
+# Xiaomi/Qingping boards, and the DEVICE_TYPE constant (16..) written verbatim on newer boards.
+# This blob is a real capture from a TS0201 Wing (DEVICE_TS0201_WING = 52) running pvvx fw v5.9.
+TS0201_WING = bytes.fromhex("87100a062804a9313134b4")
+
+
+def test_parse_extended_hw_id_names_the_board():
+    out = pvvx_struct.parse(TS0201_WING, fw=0x59)
+    assert out["hw_ver"] == 52
+    assert out["hw_ver_name"] == "TS0201 Wing"
+    assert out["hw_sensor"] == "SHT30"
+    # the rest of the capture must still decode to the firmware's documented defaults
+    assert out["adv_interval_s"] == 2.5
+    assert out["measure_period_s"] == 10.0
+    assert out["lcd_refresh_s"] == 2.45
+    assert out["averaging"] == 180
+    assert out["adv_type"] == "BTHome"
+
+
+def test_classic_hw_ids_are_unchanged():
+    for hw_id, board in ((0, "LYWSD03MMC B1.4"), (9, "MJWSD05MMC"), (13, "MJWSD06MMC"), (14, "LYWSD03MMC NB1.6")):
+        assert pvvx_struct.HW_VERSIONS[hw_id][0] == board
+
+
+def test_hw_id_spaces_do_not_collide():
+    classic = {k for k in pvvx_struct.HW_VERSIONS if k <= 14}
+    extended = {k for k in pvvx_struct.HW_VERSIONS if k >= 16}
+    assert classic and extended
+    assert not classic & extended
+    assert 15 not in pvvx_struct.HW_VERSIONS  # HW_VER_EXTENDED is a marker, not a board
+
+
+def test_unknown_hw_id_is_reported_as_unknown():
+    blob = bytearray(TS0201_WING)
+    blob[9] = 200  # not a board pvvx builds
+    out = pvvx_struct.parse(bytes(blob), fw=0x59)
+    assert out["hw_ver"] == 200
+    assert out["hw_ver_name"] is None
+    assert out["hw_sensor"] is None
