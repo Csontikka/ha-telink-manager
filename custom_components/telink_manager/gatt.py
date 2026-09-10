@@ -1299,6 +1299,10 @@ async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 
 async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, changes: dict) -> dict:
     """Apply changes to a repeater and read the whole device back, so the caller sees the result."""
 
+    target = (changes.get("ext_mac") or "").upper()
+    if target and target == mac.upper():
+        return {"ok": False, "mac": mac.upper(), "error": "a repeater cannot repeat itself"}
+
     async def fn(client):
         try:
             written = await blethr.async_apply(client, current, changes)

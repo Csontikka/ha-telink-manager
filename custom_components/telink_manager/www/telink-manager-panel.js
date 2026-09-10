@@ -981,16 +981,22 @@ class TelinkManagerPanel extends HTMLElement {
     if (f.ext_mac && !sources.some((d) => d.mac === f.ext_mac)) {
       sources.unshift({ mac: f.ext_mac, name: f.ext_mac, friend_name: "", ha_name: "" });
     }
-    const opts = [["", "— none —"]].concat(sources.map((d) => [d.mac, label(d)]));
+    // The list covers what is in range now. A repeater can also be prepared for a device that is
+    // somewhere else entirely, so a typed address stays possible — validated, not trusted.
+    const opts = [["", "— none —"]].concat(sources.map((d) => [d.mac, label(d)]), [["__custom__", "Other MAC…"]]);
     this.querySelector("#m-body").innerHTML = `
       <h3>Repeats</h3>
       <div class="fld"><span class="lab"${t("ext_mac")}>Source thermometer</span>
         <select id="b_ext">${opts.map(([v, txt]) =>
           `<option value="${escHtml(v)}" ${v === (f.ext_mac || "") ? "selected" : ""}>${escHtml(txt)}</option>`).join("")}</select></div>
+      <div class="fld" id="b_ext_row" style="display:none"><span class="lab">MAC address</span>
+        <input type="text" id="b_ext_mac" maxlength="17" placeholder="A4:C1:38:xx:xx:xx" style="width:190px">
+        <span id="b_ext_msg" class="muted" style="margin-left:10px"></span></div>
       <div class="fld"><span class="lab"${t("ext_bind_key")}>Source bind key</span>
         <input type="text" id="b_key" maxlength="32" placeholder="32 hex characters, empty = none"
-               value="${escHtml(f.ext_bind_key || "")}" style="width:290px"></div>
-      <div class="muted" style="margin:2px 0 10px">Only needed when the source thermometer broadcasts encrypted.</div>
+               value="${escHtml(f.ext_bind_key || "")}" style="width:290px">
+        <span id="b_key_msg" class="muted" style="margin-left:10px"></span></div>
+      <div class="muted" style="margin:2px 0 10px">Only needed when the source thermometer broadcasts encrypted. Picking a source fills this in from its last snapshot when we have one.</div>
 
       <h3>Display</h3>
       <div class="fld"><span class="lab">Temperature unit</span>
@@ -1011,9 +1017,77 @@ class TelinkManagerPanel extends HTMLElement {
       <button id="b-reboot" class="ghost">Reboot</button>
       <button id="b-cancel" class="cancel" style="margin-left:auto">Cancel</button>`;
     this.querySelector("#b-cancel").onclick = () => this._modalView(mac, this._loaded);
+
+    // Typed MAC: accept the usual separators or none at all, then judge it and say why.
+    const extSel = this.querySelector("#b_ext");
+    const extRow = this.querySelector("#b_ext_row");
+    const extInp = this.querySelector("#b_ext_mac");
+    const extMsg = this.querySelector("#b_ext_msg");
+    const normMac = (s) => {
+      const hex = String(s || "").trim().replace(/[\s:.-]/g, "").toUpperCase();
+      if (!/^[0-9A-F]{12}$/.test(hex)) return null;
+      return hex.match(/../g).join(":");
+    };
+    const checkCustom = () => {
+      const raw = extInp.value.trim();
+      if (!raw) { extMsg.textContent = ""; return null; }
+      const norm = normMac(raw);
+      if (!norm) { extMsg.textContent = "not a MAC address (needs 12 hex digits)"; extMsg.style.color = "var(--tm-danger)"; return null; }
+      if (norm === mac) { extMsg.textContent = "that is this repeater itself"; extMsg.style.color = "var(--tm-danger)"; return null; }
+      if (/^(00:){5}00$/.test(norm)) { extMsg.textContent = "all zeroes — use “none” instead"; extMsg.style.color = "var(--tm-danger)"; return null; }
+      const known = (this._devs || []).find((d) => d.mac === norm);
+      extMsg.textContent = known ? `${norm} — that is ${known.friend_name || known.ha_name || known.name || "in this fleet"}` : `${norm} — not seen here, will be saved anyway`;
+      extMsg.style.color = "var(--tm-text-2)";
+      return norm;
+    };
+    // The repeater only needs a bind key when its source broadcasts encrypted, and we already hold
+    // that key in the source's own snapshot. Filling it in beats making someone copy it across by
+    // hand, which is the kind of copy that goes wrong silently.
+    const keyInp = this.querySelector("#b_key");
+    const keyMsg = this.querySelector("#b_key_msg");
+    let autoFilled = null;   // last value we put there ourselves, so typed-in keys are never clobbered
+    const adoptKeyOf = async (srcMac) => {
+      if (keyInp.value.trim() && keyInp.value.trim() !== autoFilled) return;  // hand-entered, leave it
+      if (!srcMac) return;
+      let key = null;
+      try {
+        const r = await this._ws({ type: "telink_manager/backups_list", mac: srcMac });
+        const snaps = Array.isArray(r) ? r : (r && (r.backups || r.items)) || [];
+        for (let i = snaps.length - 1; i >= 0; i--) {
+          if (snaps[i] && snaps[i].bind_key) { key = snaps[i].bind_key; break; }
+        }
+      } catch (e) { return; }
+      const src = (this._devs || []).find((d) => d.mac === srcMac);
+      const name = src ? (src.friend_name || src.ha_name || src.name || srcMac) : srcMac;
+      if (key) {
+        keyInp.value = key;
+        autoFilled = key;
+        keyMsg.textContent = `filled from the last snapshot of ${name}`;
+      } else if (autoFilled) {
+        keyInp.value = "";
+        autoFilled = null;
+        keyMsg.textContent = `${name} has no stored bind key — cleared`;
+      } else {
+        keyMsg.textContent = `no stored bind key for ${name}`;
+      }
+    };
+    extSel.onchange = () => {
+      extRow.style.display = extSel.value === "__custom__" ? "" : "none";
+      if (extSel.value === "__custom__") { extInp.focus(); adoptKeyOf(checkCustom()); }
+      else adoptKeyOf(extSel.value);
+    };
+    extInp.oninput = () => { adoptKeyOf(checkCustom()); };
+
     this.querySelector("#b-save").onclick = async () => {
       const changes = {};
-      const ext = this.querySelector("#b_ext").value;
+      let ext = extSel.value;
+      if (ext === "__custom__") {
+        ext = checkCustom();
+        if (ext === null) {
+          this._mstatus(extInp.value.trim() ? "❌ Fix the MAC address first." : "❌ Enter a MAC address, or pick “none”.");
+          return;
+        }
+      }
       if (ext !== (f.ext_mac || "")) changes.ext_mac = ext;
       const key = this.querySelector("#b_key").value.trim();
       if (key !== (f.ext_bind_key || "")) changes.ext_bind_key = key;
