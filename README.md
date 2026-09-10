@@ -10,7 +10,7 @@
 
 > **Note:** For the best viewing experience, read this documentation on [GitHub](https://github.com/Csontikka/ha-telink-manager).
 
-A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome Bluetooth proxies** (with active connections) or a local Bluetooth adapter, with no extra hardware, no cloud, no separate app.
+A Home Assistant admin panel for configuring **Telink BLE thermometers** running [PVVX/ATC custom firmware](https://github.com/pvvx/ATC_MiThermometer) (LYWSD03MMC, MHO-C401, CGG1, Tuya boards converted from Zigbee such as the TS0201, ZTH01/ZTH02 and ZY-ZTH02Pro, and similar `A4:C1:38:*` devices). Scan, read and write every device setting straight over your existing **ESPHome Bluetooth proxies** (with active connections) or a local Bluetooth adapter, with no extra hardware, no cloud, no separate app.
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
@@ -21,14 +21,14 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - **Scan / Refresh** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
 - **Friendly names** — assign and persist a human name per device (stored in HA, independent of the device's own BLE name).
 - **Connect & read** — pull the full configuration blob plus device name, comfort thresholds, sensor calibration and bind key.
-- **Hardware detection** — the board revision and its temperature/humidity sensor chip (e.g. `LYWSD03MMC B1.6 · SHT4x`) are decoded from the configuration and shown in the device view and the Compare matrix.
+- **Hardware detection** — the board revision and its temperature/humidity sensor chip (e.g. `LYWSD03MMC B1.6 · SHT4x`, `TS0201 Wing · SHT30`) are decoded from the configuration and shown in the device view and the Compare matrix. Both board families are recognised: the classic Xiaomi and Qingping revisions, and the newer boards — mostly Tuya devices converted from Zigbee — which report themselves through a different id range.
 - **Write (safe settings)** — device name, comfort zones, RTC clock, LCD/display options, advertising interval, sensor calibration (and reset to factory calibration).
 - **Temporary LCD overlay** — push a custom number to the screen without persisting it.
 - **Dangerous settings** (clearly flagged, admin-only) — custom MAC address, encryption bind key, factory reset and reboot.
 - **RAW command** — send an arbitrary command to the PVVX config characteristic (for experimentation).
 - **Snapshots / History** — every read and every change is snapshotted server-side automatically (with de-duplication and a history limit). Browse each device's **history** of snapshots, **restore** any snapshot back onto the same device, or **clone** a configuration onto another device (the MAC is never cloned). A safety snapshot of the target is always taken before an overwrite, so any restore is reversible.
 - **Compare & Snapshots** — a matrix view comparing the latest config of all snapshotted devices, and a per-device **Snapshots** matrix showing every snapshot and what changed over time (with restore, clone and delete on each row) — all without touching BLE.
-- **Coverage** — a proxies × thermometers matrix: every Bluetooth scanner Home Assistant knows about (local adapters, ESPHome and Shelly proxies), which thermometer each one sees at what signal, its free connection slots, and which *passive* ESPHome proxies could still be enabled with `active: true` — with the signal you would gain. Pure cache read, no connection.
+- **Coverage** — a proxies × thermometers matrix: every Bluetooth scanner Home Assistant knows about (local adapters, ESPHome and Shelly proxies), which thermometer each one sees at what signal, its free connection slots, and which *passive* ESPHome proxies could still be enabled with `active: true` — with the signal you would gain. A proxy Home Assistant still lists but has stopped hearing from is called out as **silent**, together with the fix, because that state otherwise looks perfectly healthy. Pure cache read, no connection.
 - **Read all** — a server-side bulk job that reads every device in parallel, grouped by proxy, with retries. It survives page refresh and navigation (progress is polled from the server) so you can walk away and come back.
 - **Battery column** — estimated charge and voltage from the advertisement, colour-coded.
 
@@ -117,6 +117,7 @@ That's it. Open the panel and press **Scan**.
   - **Bind key** — changing the encryption key will break decryption for any integration still using the old key.
   - **Factory reset** — clears all custom configuration back to firmware defaults.
   - These actions are grouped, labelled as dangerous, and require admin access to the panel.
+- **Renaming restarts the device.** Writing the device name makes the firmware restart as soon as the connection closes, and the restart clears the device clock. Telink Manager writes the time back on its own right afterwards, so a rename no longer leaves the device decades behind. Other writes (comfort, display, calibration, advertising interval) leave it running.
 - **Clone never copies the MAC.** Cloning writes a source device's settings onto a *different* target device while leaving the target's own MAC intact, so you never end up with two devices sharing one address.
 - If a write fails or a device "disappears" mid-operation, it is usually a weak proxy link — move the device closer to a proxy, or use a proxy with a stronger signal, and retry.
 
@@ -127,7 +128,7 @@ That's it. Open the panel and press **Scan**.
 - **An active (connectable) proxy is required** to read or write. A passive proxy only forwards advertisements (so you get scan and battery, but no connection) — see [Bluetooth proxies](#bluetooth-proxies).
 - **No BLE pairing / PIN.** Home Assistant's Bluetooth proxies cannot perform BLE pairing, so a device PIN is intentionally not settable here — setting one would lock this panel out, recoverable only with a hardware flasher.
 - **Encrypted advertisements** cannot be decoded without the bind key (this affects the BTHome sensor side, not configuration through this panel).
-- **Validated on the Xiaomi LYWSD03MMC.** Telink Manager talks to the **PVVX** firmware's config protocol (the same `0x55` characteristic on every PVVX device), not a per-model format, so it is expected to work across the wider PVVX device family (MHO-C401, CGG1, CGDK2, …). It is, however, currently field-tested only on the LYWSD03MMC; the one display-specific feature is the temporary LCD overlay, whose number layout targets that screen.
+- **Field-tested on the Xiaomi LYWSD03MMC and the Tuya TS0201 (Wing).** Telink Manager talks to the **PVVX** firmware's config protocol (the same `0x55` characteristic on every PVVX device), not a per-model format, so it is expected to work across the wider PVVX device family (MHO-C401, CGG1, CGDK2, ZTH01/ZTH02, …). Every function has been exercised on both tested boards, the temporary LCD overlay included — its number layout, written for the LYWSD03MMC screen, came out correct on the TS0201 too. Other models are expected to work but are untested.
 
 ## Removal
 
