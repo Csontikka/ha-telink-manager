@@ -201,7 +201,7 @@ def async_coverage(hass: HomeAssistant) -> dict:
         d["best_any"] = max(anyr) if anyr else None
         dev_list.append(d)
     proxies.sort(key=lambda p: (not p["connectable"], not p["activatable"], (p["name"] or "").lower()))
-    dev_list.sort(key=lambda d: ((d["friend_name"] or d["ha_name"] or d["name"] or d["mac"]).lower()))
+    dev_list.sort(key=lambda d: (d["friend_name"] or d["ha_name"] or d["name"] or d["mac"]).lower())
     return {"ok": True, "proxies": proxies, "devices": dev_list}
 
 
