@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import struct
+import time
 
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components import bluetooth
@@ -675,10 +676,28 @@ async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -
     return {"ok": False, "mac": mac, "error": last_err}
 
 
-async def async_set_name(hass: HomeAssistant, mac: str, name: str) -> dict:
-    """Set the device's stored BLE name (UTF-8, 1..20 B). Empty name resets to default."""
+# A name write leaves the firmware waiting to restart; give it this long to reboot and start
+# advertising again before the follow-up connection that puts the clock back.
+NAME_REBOOT_SETTLE_S = 4.0
+
+
+async def async_set_name(hass: HomeAssistant, mac: str, name: str, restore_ts: int | None = None) -> dict:
+    """Set the device's stored BLE name (UTF-8, 1..20 B). Empty name resets to default.
+
+    Writing the name makes the firmware restart when the link drops, and that restart wipes the
+    device clock: measured live on a TS0201 Wing (fw v5.9) the clock fell from wall-clock time to a
+    small counter, while a config (0x55), comfort (0x20) or LCD (0x22) write left it running.
+    Writing the clock on the *same* connection does not help — the firmware acknowledges it and the
+    pending restart throws it away anyway.
+
+    So when `restore_ts` is given (unix seconds the display should show, already TZ-adjusted), the
+    clock is written on a fresh connection once the device is back, advanced by however long the
+    rename took. `clock_restored` says whether that write came back with the expected time; a clock
+    that cannot be put back is reported, never fatal — the rename itself already succeeded.
+    """
     name = (name or "").strip()
     data = name.encode("utf-8")[:20] if name else b"\x00"
+    t0 = time.time()
 
     async def fn(client):
         raw = await _cmd(client, CMD_NAME, data)
@@ -686,7 +705,19 @@ async def async_set_name(hass: HomeAssistant, mac: str, name: str) -> dict:
         ok = True if not name else (got == name)
         return {"ok": ok, "mac": mac.upper(), "verified": ok, "device_name": got}
 
-    return await _with_client(hass, mac, fn)
+    out = await _with_client(hass, mac, fn)
+    if out.get("verified") and restore_ts is not None:
+        try:
+            await asyncio.sleep(NAME_REBOOT_SETTLE_S)
+            want = int(restore_ts) + int(time.time() - t0)
+            clock = await async_set_time(hass, mac, want)
+            dev_t = clock.get("device_time")
+            out["device_time"] = dev_t
+            out["clock_restored"] = dev_t is not None and abs(dev_t - want) <= 60
+        except Exception as e:  # noqa: BLE001
+            out["clock_restored"] = False
+            out["clock_error"] = repr(e)
+    return out
 
 
 async def async_set_comfort(hass: HomeAssistant, mac: str, t_lo: float, t_hi: float, h_lo: float, h_hi: float) -> dict:

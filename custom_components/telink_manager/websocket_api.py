@@ -73,12 +73,17 @@ async def ws_set_name(hass: HomeAssistant, connection, msg):
         vol.Required("type"): "telink_manager/set_device_name",
         vol.Required("mac"): str,
         vol.Required("name"): str,
+        vol.Optional("ts"): vol.Coerce(int),
     }
 )
 @websocket_api.async_response
 async def ws_set_device_name(hass: HomeAssistant, connection, msg):
-    """Write the device's stored BLE name on the thermometer (command 0x01)."""
-    result = await gatt.async_set_name(hass, msg["mac"], msg["name"])
+    """Write the device's stored BLE name on the thermometer (command 0x01).
+
+    The rename restarts the firmware and drops its clock, so the caller may pass `ts` (the
+    TZ-adjusted unix seconds the display should show) to have the clock written back immediately.
+    """
+    result = await gatt.async_set_name(hass, msg["mac"], msg["name"], msg.get("ts"))
     if result.get("verified"):  # keep the scan-list cache in sync (empty name -> forget)
         await gatt.async_remember_ble_name(hass, msg["mac"], msg["name"])
     connection.send_result(msg["id"], result)

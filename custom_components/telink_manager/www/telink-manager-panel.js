@@ -1094,10 +1094,24 @@ class TelinkManagerPanel extends HTMLElement {
 
     this.querySelector("#c-name").onclick = async () => {
       const name = this.querySelector("#dname").value;
+      // Renaming restarts the firmware, which drops its clock, so send the current time along and
+      // let the backend write it back on the same connection.
+      const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
       const r = await this._runCmd("Setting device name…",
-        { type: "telink_manager/set_device_name", mac, name },
-        (r) => `✅ Device name set: ${escHtml(r.device_name) || "(default)"}`);
-      if (r && r.ok) { this._loaded.device_name = r.device_name; this._autoBackup(mac); }
+        { type: "telink_manager/set_device_name", mac, name, ts },
+        (r) => `✅ Device name set: ${escHtml(r.device_name) || "(default)"}` +
+          (r.clock_restored === false
+            ? " ⚠️ The rename restarted the device and its clock could not be set back — use “Set clock”."
+            : r.clock_restored ? " Clock re-applied after the restart." : ""));
+      if (r && r.ok) {
+        this._loaded.device_name = r.device_name;
+        if (r.device_time != null) {
+          this._loaded.device_time = r.device_time;
+          const el = this.querySelector("#dev-clock");
+          if (el) el.textContent = this._clockStr(r.device_time);
+        }
+        this._autoBackup(mac);
+      }
     };
     this.querySelector("#c-comfort").onclick = async () => {
       const t_lo = parseFloat(this.querySelector("#c_tlo").value);
