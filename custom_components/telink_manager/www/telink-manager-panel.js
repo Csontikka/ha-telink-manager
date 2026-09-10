@@ -282,6 +282,8 @@ class TelinkManagerPanel extends HTMLElement {
         .cov-badge { display: inline-block; background: var(--tm-accent-soft); color: var(--tm-accent);
           border-radius: 4px; padding: 0 5px; font-size: 10px; font-weight: 600; }
         .cov-hint { font-size: 11px; color: var(--tm-warn); margin-top: 4px; white-space: normal; max-width: 190px; line-height: 1.3; }
+        .cov-stale { color: var(--tm-warn); font-weight: 600; }
+        .dot.stale { background: var(--tm-warn); }
         .cov-hint code { font-size: 10.5px; }
         td.cov-c { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; border-left: 1px solid var(--tm-border); }
         td.cov-none { color: var(--tm-text-2); font-weight: 400; opacity: .5; }
@@ -1698,6 +1700,11 @@ class TelinkManagerPanel extends HTMLElement {
     this._renderCoverage();
   }
 
+  // A proxy Home Assistant still lists but hears nothing from: it reports it stopped scanning, or
+  // nothing has arrived for minutes, or it simply sees no thermometer. Whatever its configuration
+  // says, it cannot carry a connection while it is in this state.
+  _covSilent(p) { return p.scanning === false || (p.age_s != null && p.age_s > 300) || !p.seen; }
+
   _covAge(s) {
     if (s == null) return "—";
     if (s < 60) return `${Math.round(s)} s`;
@@ -1723,24 +1730,35 @@ class TelinkManagerPanel extends HTMLElement {
     };
     const nAct = proxies.filter((p) => p.connectable).length;
     const nActv = proxies.filter((p) => p.activatable).length;
-    const nSilent = proxies.filter((p) => !p.seen).length;
+    const nSilent = proxies.filter((p) => this._covSilent(p)).length;
     const orphans = devices.filter((d) => d.best_active == null).length;
     if (!proxies.length) {
       body.innerHTML = `<div class="muted">Home Assistant reports no Bluetooth scanner at all — no local adapter and no proxy. Nothing can be listed.</div>`;
       return;
     }
     const head = proxies.map((p) => {
+      // A proxy can sit here looking perfectly healthy — still registered, still "connectable" —
+      // while it has quietly stopped handing advertisements to this Home Assistant. Seen live: an
+      // ESPHome proxy that had gone silent here for hours was serving a second HA instance the
+      // whole time, and reloading its config entry brought it straight back. Without this the
+      // green connectable dot is the most misleading thing on the page.
+      const stale = this._covSilent(p);
+      // Nothing arriving at all is a different problem from being out of range, and it has a
+      // different fix, so keep the two apart.
+      const gone = p.scanning === false || (p.age_s != null && p.age_s > 300);
       // Our own literal strings; only the proxy name/source are device-supplied and go through escHtml.
-      const hint = p.activatable
+      const hint = gone
+        ? `Registered but silent for ${this._covAge(p.age_s)} — reload its config entry under Settings, Devices &amp; services; that usually revives it`
+        : (!p.seen) ? "Sees no thermometer — out of range or offline"
+        : p.activatable
         ? "Passive — set <code>bluetooth_proxy: active: true</code> in its ESPHome config and Telink Manager can connect through it"
-        : (p.kind === "shelly" && !p.connectable) ? "Passive by design — Shelly proxies cannot open connections"
-        : (!p.seen) ? "Sees no thermometer — out of range or offline" : "";
+        : (p.kind === "shelly" && !p.connectable) ? "Passive by design — Shelly proxies cannot open connections" : "";
       const alloc = p.alloc ? `slots ${p.alloc.free}/${p.alloc.slots} free` : "";
       const open = this._covOpen === p.source ? " open" : "";
       return `<th class="cov-px${p.activatable ? " cov-actv" : ""}${open}" data-src="${escHtml(p.source)}" title="Click to list every thermometer this proxy sees">
         <div class="cov-pn">${escHtml(p.name)}</div>
-        <div class="cov-pm" title="Connectable = Telink Manager can open a connection through it. Scan mode is a separate thing: active scanning only asks devices for their scan response (name, extra data), it does not make a proxy connectable."><span class="cov-badge">${KIND[p.kind] || "Other"}</span> <span class="dot ${p.connectable ? "on" : "off"}"></span> ${p.connectable ? "connectable" : "not connectable"}${p.mode ? ` · scan ${escHtml(String(p.mode)).toLowerCase()}` : ""}</div>
-        <div class="cov-pm">${alloc}${alloc ? " · " : ""}last ${this._covAge(p.age_s)} · sees ${p.seen}</div>
+        <div class="cov-pm" title="Connectable = Telink Manager can open a connection through it. Scan mode is a separate thing: active scanning only asks devices for their scan response (name, extra data), it does not make a proxy connectable."><span class="cov-badge">${KIND[p.kind] || "Other"}</span> <span class="dot ${stale ? "stale" : p.connectable ? "on" : "off"}"></span> ${p.connectable ? "connectable" : "not connectable"}${p.mode ? ` · scan ${escHtml(String(p.mode)).toLowerCase()}` : ""}${stale ? ` · <span class="cov-stale" title="Nothing has arrived from this proxy for ${this._covAge(p.age_s)}, so it cannot be used right now however it is configured.">silent</span>` : ""}</div>
+        <div class="cov-pm">${alloc}${alloc ? " · " : ""}last <span class="${stale ? "cov-stale" : ""}">${this._covAge(p.age_s)}</span> · sees ${p.seen}</div>
         ${hint ? `<div class="cov-hint">${hint}</div>` : ""}</th>`;
     }).join("");
     const rows = devices.map((d) => {
