@@ -334,3 +334,55 @@ async def test_reboot_tolerates_no_reply():
     assert (await blethr.async_reboot(client))["ok"] is True
     assert client.payload_for(CMD_REBOOT) == b""
     assert client.notify_stopped == 1
+
+
+# --- refusals that protect a working device ----------------------------------------------------
+def test_build_cfg_refuses_when_the_current_config_is_unknown():
+    """A read that timed out leaves the config keys absent. Treating them as zero would drop the
+    radio into the wrong power band and switch scanning off, and the firmware writes it to flash
+    immediately, so the only safe answer is to write nothing."""
+    for missing in blethr.CFG_KEYS:
+        base = {k: v for k, v in blethr.parse_cfg(CFG).items() if k != missing}
+        with pytest.raises(ValueError, match="current configuration unknown"):
+            blethr.build_cfg(base, {})
+        # but a value the caller supplies is not unknown, so the same gap is fine when it is set
+        blethr.build_cfg(base, {missing: blethr.parse_cfg(CFG)[missing]})
+
+
+def test_build_cfg_refuses_an_empty_base_outright():
+    with pytest.raises(ValueError, match="current configuration unknown"):
+        blethr.build_cfg({}, {"scan_interval_ms": 5000})
+
+
+async def test_apply_clears_the_source_by_writing_the_all_zero_address():
+    """The firmware only accepts exactly six MAC bytes, so clearing the source is writing zeroes.
+    An empty payload is a malformed command, not a shorter way of saying the same thing."""
+    zero = bytes([CMD_EXT_MAC]) + bytes(6)
+    client = FakeClient({CMD_EXT_MAC: zero})
+    out = await blethr.async_apply(client, blethr.parse_cfg(CFG), {"ext_mac": ""})
+    assert client.first_payload_for(CMD_EXT_MAC) == bytes(6)
+    assert out["ext_mac"] is True
+
+
+async def test_apply_clears_the_bind_key_with_sixteen_zero_bytes():
+    """The firmware stores a key only when it is handed exactly sixteen bytes, so an empty payload
+    leaves the previous key in place while looking like a successful clear."""
+    client = FakeClient({CMD_EXT_BIND_KEY: bytes([CMD_EXT_BIND_KEY]) + bytes(16)})
+    out = await blethr.async_apply(client, blethr.parse_cfg(CFG), {"ext_bind_key": ""})
+    assert client.first_payload_for(CMD_EXT_BIND_KEY) == bytes(16)
+    assert out["ext_bind_key"] is True
+
+
+async def test_apply_accepts_the_short_no_key_answer_as_cleared():
+    client = FakeClient({CMD_EXT_BIND_KEY: NO_BIND_KEY})
+    out = await blethr.async_apply(client, blethr.parse_cfg(CFG), {"ext_bind_key": ""})
+    assert out["ext_bind_key"] is True
+
+
+async def test_apply_writes_nothing_when_a_payload_is_rejected():
+    """Every payload is built before the first one is sent, so a bad value cannot leave the device
+    half-changed while the caller is told the write failed."""
+    client = FakeClient({CMD_CFG: CFG, CMD_EXT_MAC: EXT_MAC_REPLY})
+    with pytest.raises(ValueError):
+        await blethr.async_apply(client, blethr.parse_cfg(CFG), {"scan_interval_ms": 5000, "ext_mac": "not-a-mac"})
+    assert client.writes == []

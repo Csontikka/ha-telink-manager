@@ -82,6 +82,9 @@ WINDOW_MS_MIN, WINDOW_MS_MAX = 5.0, 50.0
 # and treats zero as "do not scan at all" rather than as a fast setting.
 SCAN_INTERVAL_MS_MIN, SCAN_INTERVAL_MS_MAX = 3000, 10000
 
+# Everything the 8-byte config struct carries. All of it has to be known before any of it is written.
+CFG_KEYS = ("temp_F", "rf_tx_power", "scan_interval_ms", "scan_window_min_ms", "scan_window_max_ms")
+
 # What the firmware writes into a fresh device: °C, +0.04 dBm, scanning off, 10..20 ms windows.
 DEFAULTS = {
     "temp_F": False,
@@ -311,6 +314,13 @@ def build_cfg(current: dict, changes: dict) -> bytes:
     silently clamp or reject.
     """
     merged = {**current, **changes}
+    # The config is written as one struct, so a field nobody is changing is still sent. If we do not
+    # know what the device currently holds -- a read that timed out leaves the key absent -- treating
+    # it as zero would switch scanning off and drop the radio into the wrong power band. Refuse.
+    unknown = [k for k in CFG_KEYS if merged.get(k) is None]
+    if unknown:
+        raise ValueError("current configuration unknown (" + ", ".join(sorted(unknown)) + "); read the device first")
+
     rf = int(merged.get("rf_tx_power") or 0)
     # Only judge a power the caller is actually setting. The firmware has a second, higher band that
     # the vendor tool does not offer, so a device already sitting in it must not be blocked from
@@ -345,32 +355,52 @@ async def async_apply(client, current: dict, changes: dict) -> dict:
     8-byte struct: changing one value means sending the others back unchanged.
     """
     out: dict = {}
-    cfg_keys = {"temp_F", "rf_tx_power", "scan_interval_ms", "scan_window_min_ms", "scan_window_max_ms"}
+    cfg_keys = set(CFG_KEYS)
+
+    # Build and validate every payload before sending any of them. Rejecting a bad value halfway
+    # through would leave the device with some of the change applied and the caller told it failed.
+    cfg_payload = build_cfg(current, changes) if cfg_keys & changes.keys() else None
+
+    ext_mac_payload = want_mac = None
+    if "ext_mac" in changes:
+        # Clearing the source is writing the all-zero address, which is what the firmware takes as
+        # "none". An empty payload is not a shorter way of saying that; it is a malformed command.
+        want_mac = (changes["ext_mac"] or "").strip() or "00:00:00:00:00:00"
+        ext_mac_payload = _mac_to_le(want_mac)
+
+    key_payload = None
+    if "ext_bind_key" in changes:
+        key_hex = (changes["ext_bind_key"] or "").strip()
+        # Same shape of mistake: the firmware only stores a key when it receives exactly sixteen
+        # bytes, so clearing one means writing sixteen zeroes, not writing nothing.
+        key_payload = bytes.fromhex(key_hex) if key_hex else bytes(16)
+        if len(key_payload) != 16:
+            raise ValueError("bind key must be exactly 16 bytes (32 hex characters)")
+
     async with _Session(client) as session:
-        if cfg_keys & changes.keys():
-            payload = build_cfg(current, changes)
-            await session.cmd(CMD_CFG, payload)
+        if cfg_payload is not None:
+            await session.cmd(CMD_CFG, cfg_payload)
             after = parse_cfg(await session.cmd(CMD_CFG))
             # Compare the bytes rather than the decoded values: the firmware clamps what it does not
             # like, and a rounded-back millisecond would hide that it did.
-            out["config"] = after.get("raw", "")[2:18] == payload.hex()
+            out["config"] = after.get("raw", "")[2:18] == cfg_payload.hex()
             out["config_after"] = after
 
-        if "ext_mac" in changes:
-            await session.cmd(CMD_EXT_MAC, _mac_to_le(changes["ext_mac"]))
+        if ext_mac_payload is not None:
+            await session.cmd(CMD_EXT_MAC, ext_mac_payload)
             reply = await session.cmd(CMD_EXT_MAC)
             got = _mac_from_le(reply[1:])
-            out["ext_mac"] = got == changes["ext_mac"].upper()
+            out["ext_mac"] = got == want_mac.upper()
             out["ext_mac_after"] = got
 
-        if "ext_bind_key" in changes:
-            key_hex = (changes["ext_bind_key"] or "").strip()
-            key = bytes.fromhex(key_hex) if key_hex else b""
-            if key and len(key) != 16:
-                raise ValueError("bind key must be exactly 16 bytes (32 hex characters)")
-            await session.cmd(CMD_EXT_BIND_KEY, key)
+        if key_payload is not None:
+            await session.cmd(CMD_EXT_BIND_KEY, key_payload)
             reply = await session.cmd(CMD_EXT_BIND_KEY)
-            out["ext_bind_key"] = reply[1:17].hex() == key.hex() if key else len(reply[1:17]) != 16
+            stored = reply[1:17]
+            # A cleared key reads back either as sixteen zeroes or as the firmware's short
+            # "none set" answer; both mean the same thing.
+            cleared = not any(stored) or len(stored) != 16
+            out["ext_bind_key"] = cleared if not any(key_payload) else (len(stored) == 16 and stored == key_payload)
 
         if "device_time" in changes:
             reply = await session.cmd(CMD_TIME, struct.pack("<I", int(changes["device_time"]) & 0xFFFFFFFF))

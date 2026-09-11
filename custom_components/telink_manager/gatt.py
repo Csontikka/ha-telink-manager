@@ -1334,8 +1334,16 @@ async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, chang
         # or empty snapshot would otherwise be written back over settings nobody touched.
         try:
             base = await blethr.async_read_fields(client)
-        except Exception:  # noqa: BLE001
-            base = dict(current or {})
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "mac": mac.upper(), "error": f"could not read the device: {e!r}; nothing written"}
+        if any(base.get(k) is None for k in blethr.CFG_KEYS):
+            # Falling back to whatever the caller last saw is how a stale or empty snapshot ends up
+            # being written over settings nobody touched. Better to write nothing at all.
+            return {
+                "ok": False,
+                "mac": mac.upper(),
+                "error": "could not read the current configuration; nothing written",
+            }
         try:
             written = await blethr.async_apply(client, base, changes)
         except ValueError as e:

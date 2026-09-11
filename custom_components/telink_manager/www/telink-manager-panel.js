@@ -1172,14 +1172,20 @@ class TelinkManagerPanel extends HTMLElement {
       const r = await this._runCmd("Writing repeater settings…",
         { type: "telink_manager/blethr_write", mac, current: f, changes },
         () => "✅ Repeater settings written.");
-      if (r && r.ok && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); this._autoBackup(mac); }
+      // Refresh whenever the device answered, not only on success: a write that failed partway
+      // still changed something, and leaving the old values on screen would hide that.
+      if (r && r.fields) {
+        this._loaded = r.fields;
+        this._modalView(mac, r.fields);
+        if (r.ok) this._autoBackup(mac);
+      }
     };
     this.querySelector("#b-clock").onclick = async () => {
       const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
       const r = await this._runCmd("Setting clock…",
         { type: "telink_manager/blethr_write", mac, current: f, changes: { device_time: ts } },
         () => "✅ Clock set.");
-      if (r && r.ok && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); }
+      if (r && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); }
     };
     this.querySelector("#b-reboot").onclick = async () => {
       if (!(await this._confirm("Reboot this repeater? It restarts when the connection closes.",
