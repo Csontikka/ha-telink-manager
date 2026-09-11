@@ -4,6 +4,8 @@ Every canned reply below is a real capture from a repeater running PVVX BLETHR v
 byte-level expectations are the firmware's, not a guess about it.
 """
 
+from unittest import mock
+
 import pytest
 
 from custom_components.telink_manager import blethr
@@ -386,3 +388,57 @@ async def test_apply_writes_nothing_when_a_payload_is_rejected():
     with pytest.raises(ValueError):
         await blethr.async_apply(client, blethr.parse_cfg(CFG), {"scan_interval_ms": 5000, "ext_mac": "not-a-mac"})
     assert client.writes == []
+
+
+async def test_session_lets_the_subscription_settle_before_its_first_command():
+    """Measured on a live repeater: without a pause after start_notify the first command of every
+    session loses its reply and times out, while every command after it succeeds. That reads as an
+    unreliable device, so the pause has to be there rather than being tuned away."""
+    client = FakeClient({CMD_CFG: CFG})
+    order: list[str] = []
+
+    original_start = client.start_notify
+
+    async def watched_start(uuid, cb):
+        order.append("start_notify")
+        await original_start(uuid, cb)
+
+    client.start_notify = watched_start
+
+    async def watched_sleep(_seconds):
+        order.append("settle")
+
+    with mock.patch.object(blethr.asyncio, "sleep", watched_sleep):
+        async with blethr._Session(client) as session:
+            order.append("first_command")
+            await session.cmd(CMD_CFG)
+
+    assert order == ["start_notify", "settle", "first_command"]
+    assert blethr.NOTIFY_SETTLE_S > 0
+
+
+async def test_command_is_sent_again_when_the_first_reply_never_arrives():
+    """A lost reply is not a lost write: these commands are reads, or writes of a value the caller
+    already decided on, so repeating one costs a round trip and changes nothing else."""
+    attempts = {"n": 0}
+
+    def answer_on_the_second_try(_payload):
+        attempts["n"] += 1
+        return CFG if attempts["n"] >= 2 else None
+
+    client = FakeClient({CMD_CFG: answer_on_the_second_try})
+    async with blethr._Session(client) as session:
+        reply = await session.cmd(CMD_CFG, timeout=0.05)
+
+    assert reply == CFG
+    assert attempts["n"] == 2
+
+
+async def test_command_gives_up_after_the_retry_and_says_which_opcode():
+    client = FakeClient({})  # answers nothing at all
+    async with blethr._Session(client) as session:
+        with pytest.raises(TimeoutError) as err:
+            await session.cmd(CMD_CFG, timeout=0.05)
+
+    assert "0x55" in str(err.value)
+    assert len([w for w in client.writes if w[1][0] == CMD_CFG]) == blethr.CMD_TRIES

@@ -82,6 +82,11 @@ WINDOW_MS_MIN, WINDOW_MS_MAX = 5.0, 50.0
 # and treats zero as "do not scan at all" rather than as a fast setting.
 SCAN_INTERVAL_MS_MIN, SCAN_INTERVAL_MS_MAX = 3000, 10000
 
+# How long to let a notification subscription settle before the first command, and how many times
+# to send a command whose reply never came back.
+NOTIFY_SETTLE_S = 0.4
+CMD_TRIES = 2
+
 # Everything the 8-byte config struct carries. All of it has to be known before any of it is written.
 CFG_KEYS = ("temp_F", "rf_tx_power", "scan_interval_ms", "scan_window_min_ms", "scan_window_max_ms")
 
@@ -157,6 +162,10 @@ class _Session:
         except Exception:  # noqa: BLE001
             self._write_response = True
         await asyncio.wait_for(self._client.start_notify(BLETHR_CHAR, self._on_notify), timeout=10)
+        # The subscription is not live the instant start_notify returns. Without this pause the
+        # first command of a session loses its reply and times out, reliably, while every command
+        # after it succeeds -- which reads as a flaky device rather than as a race here.
+        await asyncio.sleep(NOTIFY_SETTLE_S)
         return self
 
     async def __aexit__(self, *_exc) -> None:
@@ -166,18 +175,28 @@ class _Session:
             pass
 
     async def cmd(self, opcode: int, payload: bytes = b"", timeout: float = 8.0) -> bytes:
-        """Send one command, return the notification that echoes the same opcode."""
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        self._waiters[opcode] = fut
-        try:
-            await asyncio.wait_for(
-                self._client.write_gatt_char(BLETHR_CHAR, bytes([opcode]) + payload, response=self._write_response),
-                timeout=8,
-            )
-            return await asyncio.wait_for(fut, timeout)
-        finally:
-            self._waiters.pop(opcode, None)
+        """Send one command, return the notification that echoes the same opcode.
+
+        Sent twice if the first reply never arrives. A lost reply is not the same as a lost
+        write: the commands here are reads, or writes of a value the caller already decided on,
+        so repeating one costs a round trip and changes nothing that was not going to change.
+        """
+        last: Exception | None = None
+        for _ in range(CMD_TRIES):
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future = loop.create_future()
+            self._waiters[opcode] = fut
+            try:
+                await asyncio.wait_for(
+                    self._client.write_gatt_char(BLETHR_CHAR, bytes([opcode]) + payload, response=self._write_response),
+                    timeout=8,
+                )
+                return await asyncio.wait_for(fut, timeout)
+            except TimeoutError as err:
+                last = err
+            finally:
+                self._waiters.pop(opcode, None)
+        raise TimeoutError(f"no reply to opcode 0x{opcode:02X}") from last
 
 
 def _mac_from_le(raw: bytes) -> str | None:
