@@ -887,7 +887,8 @@ class TelinkManagerPanel extends HTMLElement {
       ${h("Radio")}
       ${row("RF TX power", f.rf_tx_dbm ? `VANT${f.rf_tx_dbm} dBm` : (f.rf_tx_power != null ? String(f.rf_tx_power) : "—"),
             "rf_tx_power", f.rf_tx_dbm ? `(${f.rf_tx_power})` : "")}
-      ${row("Scan interval", f.scanning === false ? "off" : ms(f.scan_interval_ms), "scan_interval")}
+      ${row("Source beacon interval", f.scanning === false ? "off" : ms(f.scan_interval_ms), "scan_interval",
+            f.scanning === false ? "" : "must match how often the source advertises")}
       ${row("Scan window", `${ms(f.scan_window_min_ms)} … ${ms(f.scan_window_max_ms)}`, "scan_window")}
       ${row("Services", (f.services || []).join(", ") || "—", "services")}
 
@@ -1032,10 +1033,11 @@ class TelinkManagerPanel extends HTMLElement {
         <select id="b_rf">${rfOpts.map(([v, dbm]) =>
           `<option value="${v}" ${v === (f.rf_tx_power ?? def.rf_tx_power) ? "selected" : ""}>VANT${escHtml(dbm)} dBm</option>`).join("")}</select>
         ${dflt(`VANT${(rfOpts.find(([v]) => v === def.rf_tx_power) || [0, "?"])[1]} dBm`)}</div>
-      <div class="fld"><span class="lab"${t("scan_interval")}>Scan interval (ms)</span>
+      <div class="fld"><span class="lab"${t("scan_interval")}>Source beacon interval (ms)</span>
         <input type="number" id="b_int" value="${f.scan_interval_ms ?? 0}" min="0" max="${iHi}" step="1" style="width:110px">
+        <span id="b_int_msg" class="muted" style="margin-left:10px"></span>
         ${dflt(`${def.scan_interval_ms} (off)`)}</div>
-      <div class="muted" style="margin:2px 0 8px">0 switches scanning off entirely, otherwise ${iLo}–${iHi} ms. A repeater that is not scanning shows nothing, however well the rest is set.</div>
+      <div class="muted" style="margin:2px 0 8px">This is not how often the repeater scans: it is how often the <i>source</i> advertises, and the firmware only locks on when the two agree within 100 ms. 0 switches scanning off entirely, otherwise ${iLo}–${iHi} ms.</div>
       <div class="fld"><span class="lab"${t("scan_window")}>Scan window min (ms)</span>
         <input type="number" id="b_wmin" value="${f.scan_window_min_ms ?? def.scan_window_min_ms}" min="${wLo}" max="${wHi}" step="0.008" style="width:110px">
         ${dflt(def.scan_window_min_ms)}</div>
@@ -1113,6 +1115,27 @@ class TelinkManagerPanel extends HTMLElement {
         settle(`could not look up a key for ${name}`, null);
         return;
       }
+      // The beacon interval has to equal the source's own advertising interval, or the firmware
+      // never locks on: it waits for a packet within 100 ms of when it expects one, and gives up
+      // for good after 255 misses. So check the source we actually picked rather than leaving the
+      // number to guesswork.
+      const last = snaps.length ? snaps[snaps.length - 1] : null;
+      const advMs = last && last.fields && last.fields.adv_interval_s != null
+        ? Math.round(last.fields.adv_interval_s * 1000) : null;
+      const intMsg = this.querySelector("#b_int_msg");
+      const intInp = this.querySelector("#b_int");
+      if (advMs == null) {
+        intMsg.textContent = snaps.length ? "" : `${name} has never been read here, so its beacon interval is unknown`;
+        intMsg.style.color = "var(--tm-text-2)";
+      } else if (advMs < iLo || advMs > iHi) {
+        intMsg.textContent = `${name} advertises every ${(advMs / 1000).toFixed(1)} s, which this firmware cannot lock on to — change the source to ${iLo / 1000}–${iHi / 1000} s first`;
+        intMsg.style.color = "var(--tm-danger)";
+      } else {
+        if (String(intInp.value) !== String(advMs)) intInp.value = String(advMs);
+        intMsg.textContent = `matches ${name}, which advertises every ${(advMs / 1000).toFixed(1)} s`;
+        intMsg.style.color = "var(--tm-text-2)";
+      }
+
       if (!snaps.length) {
         settle(`${name} has never been read here, so connect to it once if it needs a key`, null);
         return;
@@ -1121,7 +1144,6 @@ class TelinkManagerPanel extends HTMLElement {
       // that says it is encrypted. A source broadcasting in the clear therefore has no use for one,
       // even though it almost certainly has a key stored on it, so offering that key would only
       // invite putting a meaningless value into a working repeater.
-      const last = snaps[snaps.length - 1];
       if (!(last.fields && last.fields.adv_crypto)) {
         settle(`${name} broadcasts unencrypted, so no key is needed`, null);
         return;
