@@ -1002,7 +1002,7 @@ class TelinkManagerPanel extends HTMLElement {
         <input type="text" id="b_key" maxlength="32" placeholder="32 hex characters, empty = none"
                value="${escHtml(f.ext_bind_key || "")}" style="width:290px">
         <span id="b_key_msg" class="muted" style="margin-left:10px"></span></div>
-      <div class="muted" style="margin:2px 0 10px">Only used when the source broadcasts encrypted, so leaving it empty is fine for most thermometers. Picking a source fills it in from that device's last snapshot when we have one.</div>
+      <div class="muted" style="margin:2px 0 10px">Only used when the source broadcasts encrypted, which most thermometers do not, so this is normally empty. Picking a source that does broadcast encrypted fills it in from that device's last snapshot.</div>
 
       <h3>Display</h3>
       <div class="fld"><span class="lab">Temperature unit</span>
@@ -1051,43 +1051,54 @@ class TelinkManagerPanel extends HTMLElement {
     // hand, which is the kind of copy that goes wrong silently.
     const keyInp = this.querySelector("#b_key");
     const keyMsg = this.querySelector("#b_key_msg");
-    let autoFilled = null;   // last value we put there ourselves, so typed-in keys are never clobbered
+    // Starts as whatever the device already holds, so switching sources may replace or clear that,
+    // while a value actually typed in by hand is left alone.
+    let autoFilled = f.ext_bind_key || null;
     const adoptKeyOf = async (srcMac) => {
       if (keyInp.value.trim() && keyInp.value.trim() !== autoFilled) return;  // hand-entered, leave it
       if (!srcMac) { keyMsg.textContent = ""; return; }
       const src = (this._devs || []).find((d) => d.mac === srcMac);
       const name = src ? (src.friend_name || src.ha_name || src.name || srcMac) : srcMac;
-      let key = null;
-      let snapCount = 0;
+      const settle = (why, key) => {
+        if (key) { keyInp.value = key; autoFilled = key; keyMsg.textContent = why; return; }
+        if (autoFilled) { keyInp.value = ""; autoFilled = null; keyMsg.textContent = `cleared — ${why}`; }
+        else keyMsg.textContent = why;
+      };
+      let snaps = [];
+      let keys = [];
       try {
-        const r = await this._ws({ type: "telink_manager/backups_list", mac: srcMac });
-        const snaps = Array.isArray(r) ? r : (r && (r.backups || r.items)) || [];
-        snapCount = snaps.length;
-        for (let i = snaps.length - 1; i >= 0; i--) {
-          if (snaps[i] && snaps[i].bind_key) { key = snaps[i].bind_key; break; }
-        }
+        const [hist, list] = await Promise.all([
+          this._ws({ type: "telink_manager/backups_history", mac: srcMac }),
+          this._ws({ type: "telink_manager/backups_list", mac: srcMac }),
+        ]);
+        snaps = (hist && hist.snapshots) || [];
+        keys = Array.isArray(list) ? list : (list && (list.backups || list.items)) || [];
       } catch (e) {
-        keyMsg.textContent = `could not look up a key for ${name}`;
+        settle(`could not look up a key for ${name}`, null);
         return;
       }
-      if (key) {
-        keyInp.value = key;
-        autoFilled = key;
-        keyMsg.textContent = `filled from the last snapshot of ${name}`;
+      if (!snaps.length) {
+        settle(`${name} has never been read here, so connect to it once if it needs a key`, null);
         return;
       }
-      // Nothing to fill. Which of the two reasons it is decides what the reader should do next, so
-      // say which: a device we have never read can still give up its key, one we have cannot.
-      const why = snapCount
-        ? `no bind key stored for ${name}`
-        : `${name} has never been read here, so connect to it once and its key lands here`;
-      if (autoFilled) {
-        keyInp.value = "";
-        autoFilled = null;
-        keyMsg.textContent = `cleared — ${why}`;
-      } else {
-        keyMsg.textContent = why;
+      // The repeater only ever uses this key to decrypt, and the firmware only decrypts a packet
+      // that says it is encrypted. A source broadcasting in the clear therefore has no use for one,
+      // even though it almost certainly has a key stored on it, so offering that key would only
+      // invite putting a meaningless value into a working repeater.
+      const last = snaps[snaps.length - 1];
+      if (!(last.fields && last.fields.adv_crypto)) {
+        settle(`${name} broadcasts unencrypted, so no key is needed`, null);
+        return;
       }
+      let key = null;
+      for (let i = keys.length - 1; i >= 0; i--) {
+        if (keys[i] && keys[i].bind_key) { key = keys[i].bind_key; break; }
+      }
+      settle(
+        key ? `filled from the last snapshot of ${name}`
+            : `${name} broadcasts encrypted but no key is stored — read it once`,
+        key,
+      );
     };
     extSel.onchange = () => {
       extRow.style.display = extSel.value === "__custom__" ? "" : "none";
