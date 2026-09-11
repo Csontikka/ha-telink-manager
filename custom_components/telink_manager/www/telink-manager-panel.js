@@ -981,12 +981,23 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#m-actions").innerHTML = `
       <button id="m-edit">Edit</button>
       ${isRepeater
-        ? `<button id="m-gatt" class="ghost">GATT services</button>`
+        ? `<button id="m-wake" class="ghost">Wake</button>
+           <button id="m-gatt" class="ghost">GATT services</button>`
         : `<button id="m-cmds" class="ghost">Commands</button>`}
       <button id="m-close" class="ghost" style="margin-left:auto">Close</button>`;
     this.querySelector("#m-edit").onclick = () => this._modalEdit(mac, this._loaded);
-    if (isRepeater) this.querySelector("#m-gatt").onclick = () => this._showGattServices(mac);
-    else this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
+    if (isRepeater) {
+      // A repeater that has given up on its source stays given up until something connects to it.
+      // This does that and nothing else, so it is safe to press on a device that was fine anyway.
+      this.querySelector("#m-wake").onclick = async () => {
+        const r = await this._runCmd("Waking…", { type: "telink_manager/blethr_wake", mac },
+          (res) => res && res.scanning === false
+            ? "⚠️ Woken, but this repeater has no source interval set, so it will not scan."
+            : "✅ Searching for its source again.");
+        if (r && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); }
+      };
+      this.querySelector("#m-gatt").onclick = () => this._showGattServices(mac);
+    } else this.querySelector("#m-cmds").onclick = () => this._modalCommands(mac, this._loaded);
     this.querySelector("#m-close").onclick = () => this._closeModal();
   }
 
