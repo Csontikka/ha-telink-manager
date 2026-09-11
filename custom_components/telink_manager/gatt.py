@@ -646,6 +646,17 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 # on its own characteristic, so reading it as a thermometer only ever fails.
                 if family == "blethr":
                     fields = await blethr.async_read_fields(client)
+                    # A repeater that answers nothing is not a repeater. Reflashing back to the
+                    # thermometer firmware leaves the cached table claiming otherwise, and reporting
+                    # that as a successful read of an empty device is worse than admitting confusion.
+                    if fields.get("scan_interval_ms") is None and not rediscover:
+                        last_err = "device does not answer the repeater commands; rediscovering"
+                        rediscover = True
+                        try:
+                            await client.clear_cache()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        continue
                     fields.update(await _read_fw_info(client))
                     await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
