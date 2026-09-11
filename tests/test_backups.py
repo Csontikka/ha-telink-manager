@@ -149,3 +149,68 @@ async def test_async_setup_backfills_missing_ids(hass, hass_storage):
     hass.data[DOMAIN] = {}
     await backups.async_setup(hass)
     assert backups.list_for(hass, MAC)[0].get("id")  # backfilled
+
+
+# ---- device kinds ----
+# A repeater snapshot and a thermometer snapshot describe different hardware while using the same
+# keys, so the kind has to travel with the snapshot. Anything stored before repeaters existed is a
+# thermometer, and that assumption is what keeps old histories readable.
+
+REPEATER_FIELDS = {
+    "firmware_family": "blethr",
+    "raw": "5500a98813e204c409",
+    "fw_version": "1.2",
+    "model": "LYWSD03MMC",
+    "ext_mac": "A4:C1:38:30:75:7B",
+    "ext_bind_key": "13a9e53d6e106f459493f7d51af37d87",
+}
+
+
+def test_kind_of_defaults_to_thermometer():
+    assert backups.kind_of({}) == backups.KIND_THERMOMETER
+    assert backups.kind_of({"kind": backups.KIND_REPEATER}) == backups.KIND_REPEATER
+
+
+def test_repeater_snapshot_keeps_what_a_repeater_has():
+    hass = FakeHass(names={MAC: "Hall repeater"})
+    snap = backups.snapshot_from_fields(hass, MAC, REPEATER_FIELDS)
+    assert backups.kind_of(snap) == backups.KIND_REPEATER
+    assert snap["ext_mac"] == "A4:C1:38:30:75:7B"
+    assert snap["ext_bind_key"] == REPEATER_FIELDS["ext_bind_key"]
+    assert snap["friendly_name"] == "Hall repeater"
+    # a repeater has none of these, and inventing empty ones would only confuse the views
+    assert "comfort" not in snap and "sensor" not in snap and "device_name" not in snap
+
+
+def test_thermometer_snapshot_is_labelled_too():
+    snap = backups.snapshot_from_fields(FakeHass(), MAC, _fields())
+    assert backups.kind_of(snap) == backups.KIND_THERMOMETER
+
+
+def test_the_two_kinds_never_dedup_into_each_other():
+    hass = FakeHass()
+    therm = backups.snapshot_from_fields(hass, MAC, _fields())
+    rpt = backups.snapshot_from_fields(hass, MAC, REPEATER_FIELDS)
+    assert backups._state_sig(therm) != backups._state_sig(rpt)
+
+
+def test_history_does_not_parse_a_repeater_blob_as_a_thermometer():
+    hass = FakeHass()
+    hass.data[DOMAIN]["backups"] = {MAC: [backups.snapshot_from_fields(hass, MAC, REPEATER_FIELDS)]}
+    row = backups.history(hass, MAC)[0]
+    assert row["kind"] == backups.KIND_REPEATER
+    assert row["ext_mac"] == "A4:C1:38:30:75:7B"
+    assert row["fields"] == {}  # the 8-byte repeater config is not an 11-byte thermometer one
+
+
+def test_compare_reports_the_kind_alongside_the_fleet():
+    hass = FakeHass()
+    hass.data[DOMAIN]["backups"] = {
+        MAC: [backups.snapshot_from_fields(hass, MAC, REPEATER_FIELDS)],
+        "A4:C1:38:44:55:66": [backups.snapshot_from_fields(hass, "A4:C1:38:44:55:66", _fields())],
+    }
+    rows = {r["mac"]: r for r in backups.compare(hass)}
+    assert rows[MAC]["kind"] == backups.KIND_REPEATER
+    assert rows[MAC]["fields"] == {}
+    assert rows["A4:C1:38:44:55:66"]["kind"] == backups.KIND_THERMOMETER
+    assert rows["A4:C1:38:44:55:66"]["fields"]["adv_interval_raw"] == 40
