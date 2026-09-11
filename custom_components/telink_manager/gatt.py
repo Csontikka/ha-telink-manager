@@ -1329,8 +1329,15 @@ async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, chang
         return {"ok": False, "mac": mac.upper(), "error": "a repeater cannot repeat itself"}
 
     async def fn(client):
+        # The config goes to the device as one struct, so every field not being changed is sent back
+        # as it is. Read that from the device rather than trusting what the caller last saw: a stale
+        # or empty snapshot would otherwise be written back over settings nobody touched.
         try:
-            written = await blethr.async_apply(client, current, changes)
+            base = await blethr.async_read_fields(client)
+        except Exception:  # noqa: BLE001
+            base = dict(current or {})
+        try:
+            written = await blethr.async_apply(client, base, changes)
         except ValueError as e:
             return {"ok": False, "mac": mac.upper(), "error": str(e)}
         fields = await blethr.async_read_fields(client)
