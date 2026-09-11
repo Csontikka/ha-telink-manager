@@ -32,6 +32,7 @@ from .const import (
     CMD_MAC,
     CMD_REBOOT,
     CMD_TIME,
+    GAP_DEVICE_NAME,
     SERVICE_EXTENDED,
 )
 
@@ -181,6 +182,15 @@ async def async_read_fields(client) -> dict:
     against the rest of the fleet, which the vendor tool cannot do.
     """
     fields: dict = {"firmware_family": "blethr"}
+    # The firmware builds its name at boot and offers no command to change it, but it only puts that
+    # name in the scan response. Read it from the GAP characteristic instead, so the panel shows what
+    # the device actually calls itself rather than the name it had before it was reflashed.
+    try:
+        raw = bytes(await asyncio.wait_for(client.read_gatt_char(GAP_DEVICE_NAME), timeout=6))
+        fields["device_name"] = raw.decode("utf-8", "replace").replace("\x00", "").strip() or None
+    except Exception:  # noqa: BLE001
+        fields["device_name"] = None
+
     async with _Session(client) as session:
         for key, opcode, parser in (
             ("dev_id", CMD_DEV_ID, parse_dev_id),

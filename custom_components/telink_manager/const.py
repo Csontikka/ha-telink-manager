@@ -19,6 +19,11 @@ CMD_BIND_KEY = 0x18  # encryption bind key read (no payload) / set (exactly 16 B
 CMD_FACTORY_RESET = 0x56  # reset all config to firmware defaults; reply = fresh config blob
 CMD_REBOOT = 0x72  # reboot the device (executed on disconnect; no payload)
 
+# Standard GAP "Device Name" characteristic: the name the device itself reports over a connection.
+# Worth reading on firmware that publishes its name only in the scan response, which a passively
+# scanning proxy never asks for -- there the advertised name Home Assistant holds can be years stale.
+GAP_DEVICE_NAME = "00002a00-0000-1000-8000-00805f9b34fb"
+
 # Standard Device Information Service characteristics (firmware / model strings).
 DIS_FW_REV = "00002a26-0000-1000-8000-00805f9b34fb"  # Firmware Revision String
 DIS_SW_REV = "00002a28-0000-1000-8000-00805f9b34fb"  # Software Revision String

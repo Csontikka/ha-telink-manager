@@ -864,7 +864,7 @@ class TelinkManagerPanel extends HTMLElement {
       ${h("Repeater")}
       ${row("Firmware", `BLETHR v${f.fw_version || "?"}`, "firmware", f.fw_revision || "")}
       ${f.model ? row("Board", f.model, "model") : ""}
-      ${row("Device name (on device)", `STH_${(f.mac || "").replace(/:/g, "").slice(-6)}`, "device_name", "fixed by the firmware")}
+      ${row("Device name (on device)", f.device_name || "—", "device_name", "fixed by the firmware, read from the device")}
       ${row("Device clock", this._clockStr(f.device_time), "device_clock")}
 
       ${h("Repeats")}

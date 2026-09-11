@@ -348,6 +348,7 @@ def _known_repeater(hass: HomeAssistant, addr: str) -> bool:
 async def async_scan(hass: HomeAssistant) -> list[dict]:
     """List discovered Telink (A4:C1:38) thermometers from the HA cache. Does NOT connect."""
     out: list[dict] = []
+    ble_names = hass.data.get(DOMAIN, {}).get("ble_names", {})
     for si in bluetooth.async_discovered_service_info(hass, connectable=False):
         addr = (si.address or "").upper()
         if not addr.startswith(TELINK_PREFIX):
@@ -356,16 +357,23 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
         batt = _battery_from_adv(si)
         connectable = proxy is not None
         proxy_rssi = (proxy or {}).get("rssi")
+        repeater = blethr.looks_like_blethr(si.name, addr) or _known_repeater(hass, addr)
+        # A repeater publishes its name only in the scan response, which a passively scanning proxy
+        # never asks for, so the advertised name can still be the one it carried before it was
+        # reflashed. Prefer the name we read from the device itself when we have one.
+        adv_name = _clean_adv_name(si.name, addr)
+        if repeater:
+            adv_name = ble_names.get(addr) or adv_name
         out.append(
             {
                 "mac": addr,
-                "name": _clean_adv_name(si.name, addr),  # "" if it's just the MAC (no advertised name)
+                "name": adv_name,  # "" if it's just the MAC (no advertised name)
                 # Two ways to spot a repeater without connecting, because neither alone is enough.
                 # The firmware names itself "STH_" + MAC, but it publishes that in the scan response,
                 # which only an actively scanning proxy ever asks for. Behind a passive proxy Home
                 # Assistant keeps whatever name it knew before the device was reflashed, so the name
                 # says nothing. What does survive is our own last snapshot of it.
-                "blethr": blethr.looks_like_blethr(si.name, addr) or _known_repeater(hass, addr),
+                "blethr": repeater,
                 "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the
@@ -639,6 +647,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 if family == "blethr":
                     fields = await blethr.async_read_fields(client)
                     fields.update(await _read_fw_info(client))
+                    await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)
                 return {"ok": True, "mac": mac, "firmware": "pvvx", "fields": fields}
