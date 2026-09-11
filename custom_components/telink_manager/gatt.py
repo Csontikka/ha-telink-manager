@@ -339,6 +339,12 @@ async def async_remember_ble_name(hass: HomeAssistant, mac: str, name: str | Non
         await store.async_save(cache)
 
 
+def _known_repeater(hass: HomeAssistant, addr: str) -> bool:
+    """Whether the last time we connected to this MAC, it turned out to be a repeater."""
+    snaps = hass.data.get(DOMAIN, {}).get("backups", {}).get(addr.upper()) or []
+    return bool(snaps) and backups.kind_of(snaps[-1]) == backups.KIND_REPEATER
+
+
 async def async_scan(hass: HomeAssistant) -> list[dict]:
     """List discovered Telink (A4:C1:38) thermometers from the HA cache. Does NOT connect."""
     out: list[dict] = []
@@ -354,9 +360,12 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
             {
                 "mac": addr,
                 "name": _clean_adv_name(si.name, addr),  # "" if it's just the MAC (no advertised name)
-                # Hint only, from the advertisement: BLETHR repeaters name themselves after their MAC
-                # and cannot be renamed. Confirmed for real on connect, where the service decides.
-                "blethr": blethr.looks_like_blethr(si.name, addr),
+                # Two ways to spot a repeater without connecting, because neither alone is enough.
+                # The firmware names itself "STH_" + MAC, but it publishes that in the scan response,
+                # which only an actively scanning proxy ever asks for. Behind a passive proxy Home
+                # Assistant keeps whatever name it knew before the device was reflashed, so the name
+                # says nothing. What does survive is our own last snapshot of it.
+                "blethr": blethr.looks_like_blethr(si.name, addr) or _known_repeater(hass, addr),
                 "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the
@@ -1214,17 +1223,24 @@ async def async_services(hass: HomeAssistant, mac: str, fresh: bool = True) -> d
         dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
         if dev is None:
             return {"ok": False, "mac": mac, "error": "no_connectable"}
+        if fresh:
+            # Dropping the cache only takes effect on the next connection: the services of the
+            # connection that clears it were already fetched from the old copy. So do it on a
+            # throwaway link first, otherwise this view reports the very staleness it exists to find.
+            primer = None
+            try:
+                primer = await asyncio.wait_for(establish_connection(BleakClientWithServiceCache, dev, mac), timeout=25)
+                await primer.clear_cache()
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                await _safe_disconnect(primer)
         client = None
         try:
             client = await asyncio.wait_for(
                 establish_connection(BleakClientWithServiceCache, dev, mac, use_services_cache=not fresh),
                 timeout=25,
             )
-            if fresh:
-                try:
-                    await client.clear_cache()
-                except Exception:  # noqa: BLE001
-                    pass
             out = []
             for service in client.services:
                 chars = []

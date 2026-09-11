@@ -666,6 +666,12 @@ class TelinkManagerPanel extends HTMLElement {
       const di = (this._devs || []).find((d) => d.mac === mac);
       let refreshTable = false;
       if (di && r.fields && r.fields.device_name && !di.name) { di.name = r.fields.device_name; refreshTable = true; }
+      // A repeater behind a passive proxy cannot be told apart by its advertisement, so the list
+      // only learns what it is from a read. Mark it the moment we know.
+      if (di && r.fields && (r.fields.firmware_family === "blethr") !== !!di.blethr) {
+        di.blethr = r.fields.firmware_family === "blethr";
+        refreshTable = true;
+      }
       if (r.backup && typeof r.backup.count === "number") { this._backupMacs.set(mac, r.backup.count); refreshTable = true; }
       if (refreshTable) this._renderDevTable();
       // Came from a red "no backup" dot: now that the first backup exists, go to its backups screen.
