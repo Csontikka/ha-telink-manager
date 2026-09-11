@@ -123,9 +123,23 @@ def test_parse_cfg_matches_the_device():
     assert out["rf_tx_power"] == 169
     assert out["rf_tx_in_range"] is True
     assert out["scan_interval_ms"] == 5000
-    assert out["scan_window_min_ms"] == 1250
-    assert out["scan_window_max_ms"] == 2500
+    assert out["scanning"] is True
+    # stored in units of 8 us, so 1250 is 10 ms -- reporting the raw number as milliseconds would
+    # overstate the window by a factor of 125
+    assert out["scan_window_min_raw"] == 1250
+    assert out["scan_window_max_raw"] == 2500
+    assert out["scan_window_min_ms"] == 10.0
+    assert out["scan_window_max_ms"] == 20.0
+    assert out["rf_tx_dbm"] == "+0.04"
     assert out["raw"] == CFG.hex()
+
+
+def test_parse_cfg_reports_a_zero_interval_as_not_scanning():
+    """Zero is the firmware default and means scanning off, not "as fast as possible"."""
+    off = bytes.fromhex("5500a90000e204c409")
+    out = blethr.parse_cfg(off)
+    assert out["scan_interval_ms"] == 0
+    assert out["scanning"] is False
 
 
 def test_parse_cfg_short_reply_keeps_raw_only():
@@ -157,6 +171,34 @@ def test_mac_helpers_round_trip():
 
 
 # --- config building ---------------------------------------------------------------------------
+def test_build_cfg_accepts_zero_interval_and_the_range_ends():
+    current = blethr.parse_cfg(CFG)
+    for changes in (
+        {"scan_interval_ms": 0},
+        {"scan_interval_ms": 3000},
+        {"scan_interval_ms": 10000},
+        {"scan_window_min_ms": 5.0},
+        {"scan_window_max_ms": 50.0},
+    ):
+        blethr.build_cfg(current, changes)
+
+
+def test_build_cfg_leaves_an_untouched_out_of_band_power_alone():
+    """The firmware has a second power band the vendor tool never offers; a device already sitting
+    in it must still be able to have its other settings changed."""
+    current = {**blethr.parse_cfg(CFG), "rf_tx_power": 60}
+    built = blethr.build_cfg(current, {"scan_interval_ms": 5000})
+    assert built[1] == 60
+    with pytest.raises(ValueError):
+        blethr.build_cfg(current, {"rf_tx_power": 60})
+
+
+def test_build_cfg_converts_milliseconds_to_the_stored_units():
+    built = blethr.build_cfg(blethr.parse_cfg(CFG), {"scan_window_min_ms": 10, "scan_window_max_ms": 20})
+    assert blethr.parse_cfg(b"U" + built)["scan_window_min_raw"] == 1250
+    assert blethr.parse_cfg(b"U" + built)["scan_window_max_raw"] == 2500
+
+
 def test_build_cfg_keeps_untouched_values():
     current = blethr.parse_cfg(CFG)
     built = blethr.build_cfg(current, {"scan_interval_ms": 6000})
@@ -173,7 +215,10 @@ def test_build_cfg_keeps_untouched_values():
         {"rf_tx_power": 192},
         {"scan_interval_ms": 70000},
         {"scan_window_min_ms": -1},
-        {"scan_window_min_ms": 3000, "scan_window_max_ms": 2000},
+        {"scan_window_min_ms": 20, "scan_window_max_ms": 10},
+        {"scan_interval_ms": 2999},
+        {"scan_window_min_ms": 4.9},
+        {"scan_window_max_ms": 50.1},
     ],
 )
 def test_build_cfg_refuses_out_of_range(changes):
@@ -197,6 +242,10 @@ async def test_read_fields_decodes_both_mac_replies():
     )
     fields = await blethr.async_read_fields(client)
     assert fields["firmware_family"] == "blethr"
+    # the panel renders the radio table and the firmware defaults from the read, not its own copy
+    assert fields["defaults"]["scan_interval_ms"] == 0
+    assert [169, "+0.04"] in fields["rf_tx_options"]
+    assert fields["limits"]["scan_interval_ms"] == [3000, 10000]
     assert fields["mac"] == "A4:C1:38:9A:A6:EA"
     assert fields["ext_mac"] == "A4:C1:38:30:75:7B"
     assert fields["ext_bind_key"] is None

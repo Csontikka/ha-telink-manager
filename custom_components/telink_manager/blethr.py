@@ -38,8 +38,58 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Same table the thermometer firmware uses, kept here so a BLETHR reply can name its own radio power.
+# Radio power, as the vendor tool offers it: the register value the firmware stores, against the
+# transmit power it produces. Only this band is offered, which is the one the firmware defaults into.
+RF_TX_DBM = {
+    191: "+3.01",
+    189: "+2.81",
+    187: "+2.61",
+    185: "+2.39",
+    182: "+1.99",
+    180: "+1.73",
+    178: "+1.45",
+    176: "+1.17",
+    174: "+0.90",
+    172: "+0.58",
+    169: "+0.04",
+    168: "-0.14",
+    164: "-0.97",
+    162: "-1.42",
+    160: "-1.89",
+    158: "-2.48",
+    156: "-3.03",
+    154: "-3.61",
+    152: "-4.26",
+    150: "-5.03",
+    148: "-5.81",
+    146: "-6.67",
+    144: "-7.65",
+    142: "-8.65",
+    140: "-9.89",
+    138: "-11.4",
+    136: "-13.29",
+    134: "-15.88",
+    132: "-19.27",
+    130: "-25.18",
+}
 _RF_TX_MIN, _RF_TX_MAX = 130, 191
+
+# The scan windows are stored in units of 8 us, so a stored 1250 is 10 ms. Everything this module
+# exposes is in milliseconds; only the wire format uses the raw units.
+SCAN_TICKS_PER_MS = 125
+WINDOW_MS_MIN, WINDOW_MS_MAX = 5.0, 50.0
+# The firmware clamps a non-zero scan interval into this range (see test_config in the pvvx source),
+# and treats zero as "do not scan at all" rather than as a fast setting.
+SCAN_INTERVAL_MS_MIN, SCAN_INTERVAL_MS_MAX = 3000, 10000
+
+# What the firmware writes into a fresh device: °C, +0.04 dBm, scanning off, 10..20 ms windows.
+DEFAULTS = {
+    "temp_F": False,
+    "rf_tx_power": 169,
+    "scan_interval_ms": 0,
+    "scan_window_min_ms": 10.0,
+    "scan_window_max_ms": 20.0,
+}
 
 # Bits of the `services` word that this firmware can report. Only the ones it actually builds are
 # listed; the rest stay out so an unknown bit shows up as unknown instead of silently mislabelled.
@@ -166,10 +216,16 @@ def parse_cfg(raw: bytes) -> dict:
             "temp_F": bool(flg & 0x01),
             "flg_raw": flg,
             "rf_tx_power": rf_tx_power,
+            "rf_tx_dbm": RF_TX_DBM.get(rf_tx_power),
             "rf_tx_in_range": _RF_TX_MIN <= rf_tx_power <= _RF_TX_MAX,
             "scan_interval_ms": scan_interval,
-            "scan_window_min_ms": win_min,
-            "scan_window_max_ms": win_max,
+            # Zero is not "as fast as possible": the firmware takes it as scanning switched off, and
+            # a repeater that is not scanning shows nothing however well the rest is configured.
+            "scanning": scan_interval != 0,
+            "scan_window_min_raw": win_min,
+            "scan_window_max_raw": win_max,
+            "scan_window_min_ms": round(win_min / SCAN_TICKS_PER_MS, 3),
+            "scan_window_max_ms": round(win_max / SCAN_TICKS_PER_MS, 3),
         }
     )
     return out
@@ -181,7 +237,17 @@ async def async_read_fields(client) -> dict:
     The interesting part is `ext_mac`: the thermometer this device repeats. The panel can match it
     against the rest of the fleet, which the vendor tool cannot do.
     """
-    fields: dict = {"firmware_family": "blethr"}
+    # The radio table and the firmware defaults travel with the read, so the panel renders them from
+    # one source instead of keeping its own copy that can drift.
+    fields: dict = {
+        "firmware_family": "blethr",
+        "rf_tx_options": [[value, RF_TX_DBM[value]] for value in sorted(RF_TX_DBM, reverse=True)],
+        "defaults": dict(DEFAULTS),
+        "limits": {
+            "scan_interval_ms": [SCAN_INTERVAL_MS_MIN, SCAN_INTERVAL_MS_MAX],
+            "scan_window_ms": [WINDOW_MS_MIN, WINDOW_MS_MAX],
+        },
+    }
     # The firmware builds its name at boot and offers no command to change it, but it only puts that
     # name in the scan response. Read it from the GAP characteristic instead, so the panel shows what
     # the device actually calls itself rather than the name it had before it was reflashed.
@@ -246,16 +312,28 @@ def build_cfg(current: dict, changes: dict) -> bytes:
     """
     merged = {**current, **changes}
     rf = int(merged.get("rf_tx_power") or 0)
-    if not _RF_TX_MIN <= rf <= _RF_TX_MAX:
+    # Only judge a power the caller is actually setting. The firmware has a second, higher band that
+    # the vendor tool does not offer, so a device already sitting in it must not be blocked from
+    # having its other settings changed.
+    if "rf_tx_power" in changes and not _RF_TX_MIN <= rf <= _RF_TX_MAX:
         raise ValueError(f"RF TX power must be {_RF_TX_MIN}..{_RF_TX_MAX}, got {rf}")
+
     interval = int(merged.get("scan_interval_ms") or 0)
-    win_min = int(merged.get("scan_window_min_ms") or 0)
-    win_max = int(merged.get("scan_window_max_ms") or 0)
-    for label, value in (("scan interval", interval), ("scan window min", win_min), ("scan window max", win_max)):
-        if not 0 <= value <= 0xFFFF:
-            raise ValueError(f"{label} must be 0..65535 ms, got {value}")
+    if interval and not SCAN_INTERVAL_MS_MIN <= interval <= SCAN_INTERVAL_MS_MAX:
+        raise ValueError(
+            f"scan interval must be 0 (off) or {SCAN_INTERVAL_MS_MIN}..{SCAN_INTERVAL_MS_MAX} ms, got {interval}"
+        )
+
+    def _window(key: str, label: str) -> int:
+        ms = float(merged.get(key) or 0)
+        if not WINDOW_MS_MIN <= ms <= WINDOW_MS_MAX:
+            raise ValueError(f"{label} must be {WINDOW_MS_MIN}..{WINDOW_MS_MAX} ms, got {ms}")
+        return round(ms * SCAN_TICKS_PER_MS)
+
+    win_min = _window("scan_window_min_ms", "scan window min")
+    win_max = _window("scan_window_max_ms", "scan window max")
     if win_min > win_max:
-        raise ValueError(f"scan window min ({win_min} ms) must not exceed max ({win_max} ms)")
+        raise ValueError("scan window min must not exceed max")
     flg = 0x01 if merged.get("temp_F") else 0x00
     return struct.pack("<BBHHH", flg, rf, interval, win_min, win_max)
 
@@ -273,7 +351,9 @@ async def async_apply(client, current: dict, changes: dict) -> dict:
             payload = build_cfg(current, changes)
             await session.cmd(CMD_CFG, payload)
             after = parse_cfg(await session.cmd(CMD_CFG))
-            out["config"] = all(after.get(k) == {**current, **changes}.get(k) for k in cfg_keys)
+            # Compare the bytes rather than the decoded values: the firmware clamps what it does not
+            # like, and a rounded-back millisecond would hide that it did.
+            out["config"] = after.get("raw", "")[2:18] == payload.hex()
             out["config_after"] = after
 
         if "ext_mac" in changes:

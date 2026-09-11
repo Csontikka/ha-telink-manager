@@ -860,7 +860,17 @@ class TelinkManagerPanel extends HTMLElement {
       : `${f.ext_mac} — not in this fleet`;
     const srcNote = src ? `${src.rssi} dBm${src.battery != null ? `, battery ${src.battery}%` : ""}` : "";
 
+    // Two settings each stop a repeater dead on their own, and neither looks like a fault anywhere
+    // else on this screen, so say it once at the top rather than leaving it to be pieced together.
+    const idle = [];
+    if (!f.ext_mac || /^(00:){5}00$/.test(f.ext_mac)) idle.push("no source thermometer is set");
+    if (f.scanning === false) idle.push("scanning is off (scan interval 0)");
+    const warn = idle.length
+      ? `<div class="cov-hint" style="max-width:none;margin:0 0 10px">This repeater is showing nothing: ${idle.join(", and ")}. Fix it under Edit.</div>`
+      : "";
+
     return `<div class="ro">
+      ${warn}
       ${h("Repeater")}
       ${row("Firmware", `BLETHR v${f.fw_version || "?"}`, "firmware", f.fw_revision || "")}
       ${f.model ? row("Board", f.model, "model") : ""}
@@ -875,8 +885,9 @@ class TelinkManagerPanel extends HTMLElement {
       ${row("Temperature unit", f.temp_F ? "°F" : "°C", "temp_F")}
 
       ${h("Radio")}
-      ${row("RF TX power", f.rf_tx_power != null ? String(f.rf_tx_power) : "—", "rf_tx_power")}
-      ${row("Scan interval", ms(f.scan_interval_ms), "scan_interval")}
+      ${row("RF TX power", f.rf_tx_dbm ? `VANT${f.rf_tx_dbm} dBm` : (f.rf_tx_power != null ? String(f.rf_tx_power) : "—"),
+            "rf_tx_power", f.rf_tx_dbm ? `(${f.rf_tx_power})` : "")}
+      ${row("Scan interval", f.scanning === false ? "off" : ms(f.scan_interval_ms), "scan_interval")}
       ${row("Scan window", `${ms(f.scan_window_min_ms)} … ${ms(f.scan_window_max_ms)}`, "scan_window")}
       ${row("Services", (f.services || []).join(", ") || "—", "services")}
 
@@ -983,6 +994,13 @@ class TelinkManagerPanel extends HTMLElement {
   _modalEditBlethr(mac, f) {
     const t = (k) => TIPS[k] ? ` title="${TIPS[k].replace(/"/g, "&quot;")}"` : "";
     const label = (d) => `${d.friend_name || d.ha_name || d.name || d.mac} (${d.mac})`;
+    // The radio table, the firmware defaults and its accepted ranges all come from the read, so this
+    // screen never keeps its own copy of numbers that live in the firmware.
+    const def = f.defaults || { temp_F: false, rf_tx_power: 169, scan_interval_ms: 0, scan_window_min_ms: 10, scan_window_max_ms: 20 };
+    const rfOpts = f.rf_tx_options || [[169, "+0.04"]];
+    const [iLo, iHi] = (f.limits && f.limits.scan_interval_ms) || [3000, 10000];
+    const [wLo, wHi] = (f.limits && f.limits.scan_window_ms) || [5, 50];
+    const dflt = (v) => `<span class="muted" style="margin-left:10px">default ${escHtml(String(v))}</span>`;
     const sources = (this._devs || []).filter((d) => d.mac !== mac && !d.blethr);
     if (f.ext_mac && !sources.some((d) => d.mac === f.ext_mac)) {
       sources.unshift({ mac: f.ext_mac, name: f.ext_mac, friend_name: "", ha_name: "" });
@@ -1006,23 +1024,41 @@ class TelinkManagerPanel extends HTMLElement {
 
       <h3>Display</h3>
       <div class="fld"><span class="lab">Temperature unit</span>
-        <select id="b_unit"><option value="C" ${f.temp_F ? "" : "selected"}>°C</option><option value="F" ${f.temp_F ? "selected" : ""}>°F</option></select></div>
+        <select id="b_unit"><option value="C" ${f.temp_F ? "" : "selected"}>°C</option><option value="F" ${f.temp_F ? "selected" : ""}>°F</option></select>
+        ${dflt(!def.temp_F ? "°C" : "°F")}</div>
 
       <h3>Radio</h3>
       <div class="fld"><span class="lab"${t("rf_tx_power")}>RF TX power</span>
-        <input type="number" id="b_rf" value="${f.rf_tx_power ?? 169}" min="130" max="191" step="1"></div>
+        <select id="b_rf">${rfOpts.map(([v, dbm]) =>
+          `<option value="${v}" ${v === (f.rf_tx_power ?? def.rf_tx_power) ? "selected" : ""}>VANT${escHtml(dbm)} dBm</option>`).join("")}</select>
+        ${dflt(`VANT${(rfOpts.find(([v]) => v === def.rf_tx_power) || [0, "?"])[1]} dBm`)}</div>
       <div class="fld"><span class="lab"${t("scan_interval")}>Scan interval (ms)</span>
-        <input type="number" id="b_int" value="${f.scan_interval_ms ?? 0}" min="0" max="65535" step="1"></div>
+        <input type="number" id="b_int" value="${f.scan_interval_ms ?? 0}" min="0" max="${iHi}" step="1" style="width:110px">
+        ${dflt(`${def.scan_interval_ms} (off)`)}</div>
+      <div class="muted" style="margin:2px 0 8px">0 switches scanning off entirely, otherwise ${iLo}–${iHi} ms. A repeater that is not scanning shows nothing, however well the rest is set.</div>
       <div class="fld"><span class="lab"${t("scan_window")}>Scan window min (ms)</span>
-        <input type="number" id="b_wmin" value="${f.scan_window_min_ms ?? 0}" min="0" max="65535" step="1"></div>
+        <input type="number" id="b_wmin" value="${f.scan_window_min_ms ?? def.scan_window_min_ms}" min="${wLo}" max="${wHi}" step="0.008" style="width:110px">
+        ${dflt(def.scan_window_min_ms)}</div>
       <div class="fld"><span class="lab"${t("scan_window")}>Scan window max (ms)</span>
-        <input type="number" id="b_wmax" value="${f.scan_window_max_ms ?? 0}" min="0" max="65535" step="1"></div>`;
+        <input type="number" id="b_wmax" value="${f.scan_window_max_ms ?? def.scan_window_max_ms}" min="${wLo}" max="${wHi}" step="0.008" style="width:110px">
+        ${dflt(def.scan_window_max_ms)}</div>
+      <div class="muted" style="margin:2px 0 4px">Windows run ${wLo}–${wHi} ms and are stored in steps of 0.008 ms, so the device may round what you type.</div>`;
     this.querySelector("#m-actions").innerHTML = `
       <button id="b-save">Save</button>
+      <button id="b-defaults" class="ghost">Firmware defaults</button>
       <button id="b-clock" class="ghost">Set clock</button>
       <button id="b-reboot" class="ghost">Reboot</button>
       <button id="b-cancel" class="cancel" style="margin-left:auto">Cancel</button>`;
     this.querySelector("#b-cancel").onclick = () => this._modalView(mac, this._loaded);
+    // Fills the form, does not write: the values are still reviewed and saved deliberately.
+    this.querySelector("#b-defaults").onclick = () => {
+      this.querySelector("#b_unit").value = def.temp_F ? "F" : "C";
+      this.querySelector("#b_rf").value = String(def.rf_tx_power);
+      this.querySelector("#b_int").value = String(def.scan_interval_ms);
+      this.querySelector("#b_wmin").value = String(def.scan_window_min_ms);
+      this.querySelector("#b_wmax").value = String(def.scan_window_max_ms);
+      this._mstatus("Firmware defaults filled in. Review them, then Save — note the default leaves scanning off.");
+    };
 
     // Typed MAC: accept the usual separators or none at all, then judge it and say why.
     const extSel = this.querySelector("#b_ext");
@@ -1122,9 +1158,10 @@ class TelinkManagerPanel extends HTMLElement {
       if (key !== (f.ext_bind_key || "")) changes.ext_bind_key = key;
       const unitF = this.querySelector("#b_unit").value === "F";
       if (unitF !== !!f.temp_F) changes.temp_F = unitF;
-      for (const [id, field] of [["b_rf", "rf_tx_power"], ["b_int", "scan_interval_ms"],
-                                 ["b_wmin", "scan_window_min_ms"], ["b_wmax", "scan_window_max_ms"]]) {
-        const v = parseInt(this.querySelector("#" + id).value, 10);
+      for (const [id, field, num] of [["b_rf", "rf_tx_power", parseInt], ["b_int", "scan_interval_ms", parseInt],
+                                      ["b_wmin", "scan_window_min_ms", parseFloat],
+                                      ["b_wmax", "scan_window_max_ms", parseFloat]]) {
+        const v = num(this.querySelector("#" + id).value, 10);
         if (Number.isFinite(v) && v !== f[field]) changes[field] = v;
       }
       if (!Object.keys(changes).length) { this._mstatus("Nothing changed."); return; }
