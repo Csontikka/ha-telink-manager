@@ -441,6 +441,14 @@ async def ws_blethr_write(hass: HomeAssistant, connection, msg):
 
 
 @websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "telink_manager/blethr_wake", vol.Required("mac"): str})
+@websocket_api.async_response
+async def ws_blethr_wake(hass: HomeAssistant, connection, msg):
+    """Make a parked repeater search for its source again, by connecting and letting go."""
+    connection.send_result(msg["id"], await gatt.async_blethr_wake(hass, msg["mac"]))
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/blethr_reboot", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_blethr_reboot(hass: HomeAssistant, connection, msg):
@@ -454,6 +462,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_coverage)
     websocket_api.async_register_command(hass, ws_services)
     websocket_api.async_register_command(hass, ws_blethr_write)
+    websocket_api.async_register_command(hass, ws_blethr_wake)
     websocket_api.async_register_command(hass, ws_blethr_reboot)
     websocket_api.async_register_command(hass, ws_scan)
     websocket_api.async_register_command(hass, ws_raw)

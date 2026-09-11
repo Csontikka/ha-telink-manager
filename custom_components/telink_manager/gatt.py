@@ -1380,3 +1380,32 @@ async def async_blethr_reboot(hass: HomeAssistant, mac: str) -> dict:
         return {"ok": True, "mac": mac.upper()}
 
     return await _with_blethr_client(hass, mac, fn)
+
+
+async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
+    """Start a repeater searching for its source again, without restarting it.
+
+    The firmware gives up on a source that has been silent long enough and stops scanning. Nothing
+    brings it back on its own: not the source returning, not time passing. What does is the end of
+    any connection, because the disconnect handler restarts the search from the beginning. So
+    connecting and letting go is a remote recovery, and it costs the device a single search rather
+    than a reboot, which would also lose its uptime and its running averages.
+
+    The fields come back with it so the caller can see what the device will now look for, and
+    whether it is configured to look at all: a repeater with no interval set is not stuck, it is
+    switched off, and waking it would change nothing.
+    """
+
+    async def fn(client):
+        fields = await blethr.async_read_fields(client)
+        return {
+            "ok": True,
+            "mac": mac.upper(),
+            "ext_mac": fields.get("ext_mac"),
+            "scanning": fields.get("scanning"),
+            "fields": fields,
+        }
+
+    # The search restarts when this returns and the connection is dropped, not while it is open:
+    # the firmware stops scanning for as long as a client is connected.
+    return await _with_blethr_client(hass, mac, fn)
