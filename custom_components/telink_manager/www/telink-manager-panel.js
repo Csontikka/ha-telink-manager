@@ -996,7 +996,7 @@ class TelinkManagerPanel extends HTMLElement {
         <input type="text" id="b_key" maxlength="32" placeholder="32 hex characters, empty = none"
                value="${escHtml(f.ext_bind_key || "")}" style="width:290px">
         <span id="b_key_msg" class="muted" style="margin-left:10px"></span></div>
-      <div class="muted" style="margin:2px 0 10px">Only needed when the source thermometer broadcasts encrypted. Picking a source fills this in from its last snapshot when we have one.</div>
+      <div class="muted" style="margin:2px 0 10px">Only used when the source broadcasts encrypted, so leaving it empty is fine for most thermometers. Picking a source fills it in from that device's last snapshot when we have one.</div>
 
       <h3>Display</h3>
       <div class="fld"><span class="lab">Temperature unit</span>
@@ -1048,27 +1048,39 @@ class TelinkManagerPanel extends HTMLElement {
     let autoFilled = null;   // last value we put there ourselves, so typed-in keys are never clobbered
     const adoptKeyOf = async (srcMac) => {
       if (keyInp.value.trim() && keyInp.value.trim() !== autoFilled) return;  // hand-entered, leave it
-      if (!srcMac) return;
+      if (!srcMac) { keyMsg.textContent = ""; return; }
+      const src = (this._devs || []).find((d) => d.mac === srcMac);
+      const name = src ? (src.friend_name || src.ha_name || src.name || srcMac) : srcMac;
       let key = null;
+      let snapCount = 0;
       try {
         const r = await this._ws({ type: "telink_manager/backups_list", mac: srcMac });
         const snaps = Array.isArray(r) ? r : (r && (r.backups || r.items)) || [];
+        snapCount = snaps.length;
         for (let i = snaps.length - 1; i >= 0; i--) {
           if (snaps[i] && snaps[i].bind_key) { key = snaps[i].bind_key; break; }
         }
-      } catch (e) { return; }
-      const src = (this._devs || []).find((d) => d.mac === srcMac);
-      const name = src ? (src.friend_name || src.ha_name || src.name || srcMac) : srcMac;
+      } catch (e) {
+        keyMsg.textContent = `could not look up a key for ${name}`;
+        return;
+      }
       if (key) {
         keyInp.value = key;
         autoFilled = key;
         keyMsg.textContent = `filled from the last snapshot of ${name}`;
-      } else if (autoFilled) {
+        return;
+      }
+      // Nothing to fill. Which of the two reasons it is decides what the reader should do next, so
+      // say which: a device we have never read can still give up its key, one we have cannot.
+      const why = snapCount
+        ? `no bind key stored for ${name}`
+        : `${name} has never been read here, so connect to it once and its key lands here`;
+      if (autoFilled) {
         keyInp.value = "";
         autoFilled = null;
-        keyMsg.textContent = `${name} has no stored bind key — cleared`;
+        keyMsg.textContent = `cleared — ${why}`;
       } else {
-        keyMsg.textContent = `no stored bind key for ${name}`;
+        keyMsg.textContent = why;
       }
     };
     extSel.onchange = () => {
