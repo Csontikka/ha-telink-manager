@@ -155,6 +155,24 @@ def _fw_byte_of(snap: dict) -> int:
         return 0  # parse() treats 0 as modern (all our devices are 5.x)
 
 
+def last_fields(hass: HomeAssistant, mac: str) -> dict:
+    """The parsed settings of this device's newest readable snapshot, or {} if there is none.
+
+    Cheaper than history() for callers that only want the latest, which is most of them: it stops
+    at the first snapshot it can parse instead of parsing every one that was ever taken. Repeater
+    snapshots are skipped, because their blob is a different struct and running it through the
+    thermometer parser would produce numbers that look real.
+    """
+    for snap in reversed(list_for(hass, mac)):
+        if not snap.get("raw") or kind_of(snap) != KIND_THERMOMETER:
+            continue
+        try:
+            return pvvx_struct.parse(bytes.fromhex(snap["raw"]), _fw_byte_of(snap))
+        except Exception:  # noqa: BLE001 - an unreadable snapshot simply tells us nothing
+            continue
+    return {}
+
+
 def history(hass: HomeAssistant, mac: str) -> list:
     """All snapshots of ONE device, each parsed into config fields — for the per-device timeline."""
     out = []

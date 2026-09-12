@@ -17,7 +17,7 @@ from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
-from . import backups, blethr, pvvx_struct
+from . import adv, backups, blethr, pvvx_struct
 from .const import (
     CFG_CHAR,
     CMD_BIND_KEY,
@@ -208,142 +208,15 @@ def async_coverage(hass: HomeAssistant) -> dict:
     return {"ok": True, "proxies": proxies, "devices": dev_list}
 
 
-_BTHOME_UUID = "0000fcd2-0000-1000-8000-00805f9b34fb"
-_ESS_UUID = "0000181a-0000-1000-8000-00805f9b34fb"
-# BTHome v2 object data lengths (bytes) — enough to walk objects to battery (0x01) / voltage (0x0C)
-_BTHOME_LEN = {
-    0x00: 1,
-    0x01: 1,
-    0x02: 2,
-    0x03: 2,
-    0x04: 3,
-    0x05: 3,
-    0x06: 2,
-    0x07: 2,
-    0x08: 2,
-    0x09: 1,
-    0x0A: 3,
-    0x0B: 3,
-    0x0C: 2,
-    0x0D: 2,
-    0x0E: 2,
-    0x0F: 1,
-    0x10: 1,
-    0x11: 1,
-    0x12: 2,
-    0x13: 2,
-    0x14: 2,
-    0x2E: 1,
-    0x2F: 1,
-    0x3A: 1,
-    0x3D: 2,
-    0x3E: 4,
-    0x3F: 2,
-}
+def _stale_limit(hass: HomeAssistant, mac: str) -> float | None:
+    """How long this device's packet counter may stand still before it has stopped.
 
-
-def _battery_from_adv(si) -> dict:
-    """Battery % (and voltage if present) from the BLE advertisement — no connection needed.
-    Supports BTHome v2 (unencrypted) and the pvvx/atc1441 0x181A custom formats."""
-    sd = getattr(si, "service_data", None) or {}
-    raw = sd.get(_BTHOME_UUID)
-    if raw:
-        b = bytes(raw)
-        if b and not (b[0] & 0x01):  # bit0 of device-info byte = encrypted
-            i, batt, volt = 1, None, None
-            while i < len(b):
-                ln = _BTHOME_LEN.get(b[i])
-                if ln is None or i + 1 + ln > len(b):
-                    break
-                val = b[i + 1 : i + 1 + ln]
-                if b[i] == 0x01:
-                    batt = val[0]
-                elif b[i] == 0x0C:
-                    volt = int.from_bytes(val, "little") / 1000.0
-                i += 1 + ln
-            # many of these devices advertise battery as VOLTAGE (0x0C) instead of % (0x01)
-            if batt is not None or volt is not None:
-                return {"battery": batt, "battery_v": volt, "battery_src": "bthome"}
-    raw = sd.get(_ESS_UUID)
-    if raw:
-        b = bytes(raw)
-        if len(b) >= 15:  # pvvx custom: MAC6 temp2 hum2 mv2 batt1 cnt1 flags1
-            return {"battery": b[12], "battery_v": int.from_bytes(b[10:12], "little") / 1000.0, "battery_src": "pvvx"}
-        if len(b) >= 13:  # atc1441: MAC6 temp2(BE) hum1 batt1 mv2(BE) cnt1
-            return {"battery": b[9], "battery_v": int.from_bytes(b[10:12], "big") / 1000.0, "battery_src": "atc"}
-    return {"battery": None, "battery_v": None, "battery_src": None}
-
-
-def _packet_id_from_adv(si) -> int | None:
-    """The BTHome packet counter, which every one of these devices increments per measurement.
-
-    It is the only field that is guaranteed to change between two advertisements, so it is what
-    tells a device that has stopped from one whose readings happen to be steady.
+    The counter steps once per measurement, and that period is set per device, so the limit has to
+    come from the device rather than being chosen here. Taken from its newest snapshot, which costs
+    one parse and no radio; unknown until the device has been read once, and no claim is made until
+    then.
     """
-    raw = (getattr(si, "service_data", None) or {}).get(_BTHOME_UUID)
-    if not raw:
-        return None
-    b = bytes(raw)
-    if not b or b[0] & 0x01:  # encrypted: nothing to read without the key
-        return None
-    i = 1
-    while i < len(b):
-        ln = _BTHOME_LEN.get(b[i])
-        if ln is None or i + 1 + ln > len(b):
-            return None
-        if b[i] == 0x00:
-            return b[i + 1]
-        i += 1 + ln
-    return None
-
-
-def _is_relaying(si) -> bool | None:
-    """Whether a repeater's advertisement still carries the reading it exists to pass on.
-
-    A repeater that has given up on its source advertises only its own state: a packet counter,
-    its voltage and its error count. The counter keeps moving, so nothing that watches for a
-    stalled counter will notice, and the consumer keeps showing the last relayed temperature
-    because it has no reason to drop it. What changes is that the temperature stops being in the
-    packet at all, and that is unambiguous the first time it is seen.
-
-    None when there is no BTHome payload to judge, which is a different state again: the few
-    seconds between a disconnect and the next advertisement, when the device is carrying flags
-    and nothing else.
-    """
-    raw = (getattr(si, "service_data", None) or {}).get(_BTHOME_UUID)
-    if not raw:
-        return None
-    b = bytes(raw)
-    if not b or b[0] & 0x01:
-        return None
-    i = 1
-    while i < len(b):
-        ln = _BTHOME_LEN.get(b[i])
-        if ln is None or i + 1 + ln > len(b):
-            return None
-        if b[i] == 0x02:  # temperature, which only ever comes from the source
-            return True
-        i += 1 + ln
-    return False
-
-
-def _stale_seconds(hass: HomeAssistant, mac: str, packet_id: int | None) -> float | None:
-    """How long this device's packet counter has been standing still, in seconds.
-
-    A repeater that has lost its source keeps advertising the last reading it heard, unchanged and
-    indefinitely, so it looks alive and current to anything that only reads the values. The counter
-    is what gives it away. None when there is nothing to judge: no counter in the advertisement, or
-    this is the first time we have seen one.
-    """
-    if packet_id is None:
-        return None
-    seen = hass.data.setdefault(DOMAIN, {}).setdefault("adv_pid", {})
-    now = time.monotonic()
-    prev = seen.get(mac)
-    if prev is None or prev[0] != packet_id:
-        seen[mac] = (packet_id, now)
-        return 0.0
-    return round(now - prev[1], 1)
+    return adv.stale_threshold_s(backups.last_fields(hass, mac).get("measure_period_s"))
 
 
 def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
@@ -351,16 +224,16 @@ def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
 
     This is the setting that stops a repeater dead while leaving nothing else to see. It waits for
     a packet within 100 ms of when it expects one, so an interval that disagrees with the source
-    means it never locks on: it hears the source, rejects the timing, starts over, and repeats
-    that for as long as it has power. From the outside it looks alive. The display updates now and
-    then, from the packets a search stage happens to catch, and no error is reported anywhere.
+    means it never locks on: it hears the source, rejects the timing, starts over, and repeats that
+    for as long as it has power. From the outside it looks alive. The display updates now and then,
+    from the packets a search stage happens to catch, and no error is reported anywhere.
 
     The number to match is the source's ADVERTISING interval, not how often it takes a reading.
     Those differ by the measurement multiplier, and a thermometer set to advertise every 2.5 s
     while measuring every 10 cannot be followed at all, because the firmware's own minimum is 3 s.
 
-    Judged from the source's last snapshot, so it costs no radio traffic. Silent when there is no
-    snapshot to judge against, rather than guessing.
+    Judged from the source's last snapshot, so it costs no radio traffic and is as current as the
+    last time that device was read. Silent when there is no snapshot to judge against.
     """
     source = (fields.get("ext_mac") or "").upper()
     if not source or source == "00:00:00:00:00:00":
@@ -368,18 +241,19 @@ def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
     interval = fields.get("scan_interval_ms")
     if not interval:  # zero means scanning is off, which is a different problem, already reported
         return {}
-    snaps = backups.history(hass, source)
-    for snap in reversed(snaps):
-        adv_s = (snap.get("fields") or {}).get("adv_interval_s")
-        if adv_s is None:
-            continue
-        adv_ms = int(round(adv_s * 1000))
-        out = {"source_adv_interval_ms": adv_ms, "source_interval_ok": abs(adv_ms - interval) <= 100}
-        if adv_ms < blethr.SCAN_INTERVAL_MS_MIN:
-            # No setting on this repeater can follow it; the source is what has to change.
-            out["source_interval_unusable"] = True
-        return out
-    return {}
+    adv_s = backups.last_fields(hass, source).get("adv_interval_s")
+    if adv_s is None:
+        return {}
+    adv_ms = int(round(adv_s * 1000))
+    out = {"source_adv_interval_ms": adv_ms, "source_interval_ok": abs(adv_ms - interval) <= 100}
+    # Whether ANY legal setting on this repeater could follow that source. The firmware accepts a
+    # period within 100 ms of the configured one, so what is reachable is the settable range
+    # widened by that much at each end. Outside it the source is what has to change, and telling
+    # someone to type a number the editor will refuse would send them round in a circle.
+    if not (blethr.SCAN_INTERVAL_MS_MIN - 100 <= adv_ms <= blethr.SCAN_INTERVAL_MS_MAX + 100):
+        out["source_interval_unusable"] = True
+        out["source_interval_ok"] = False
+    return out
 
 
 def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
@@ -462,7 +336,7 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
         if not addr.startswith(TELINK_PREFIX):
             continue
         proxy = _best_proxy(hass, addr)
-        batt = _battery_from_adv(si)
+        batt = adv.battery_from_adv(si)
         connectable = proxy is not None
         proxy_rssi = (proxy or {}).get("rssi")
         repeater = blethr.looks_like_blethr(si.name, addr) or _known_repeater(hass, addr)
@@ -496,10 +370,18 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 # Seconds the packet counter has stood still. A device that has stopped keeps
                 # advertising its last reading, so the values alone cannot tell it from a healthy
                 # one; this can.
-                "stale_s": _stale_seconds(hass, addr, _packet_id_from_adv(si)),
+                "stale_s": adv.stale_seconds(
+                    hass.data.setdefault(DOMAIN, {}).setdefault("adv_pid", {}),
+                    addr,
+                    adv.packet_id_from_adv(si),
+                    time.monotonic(),
+                ),
+                # The limit is the device's own measurement period, not a number chosen here:
+                # a thermometer set to measure every ten minutes is not broken for doing it.
+                "stale_limit_s": _stale_limit(hass, addr),
                 # For a repeater, whether its advertisement still carries the source's reading.
                 # Its own counter keeps moving while it is parked, so stale_s cannot see this.
-                "relaying": _is_relaying(si) if repeater else None,
+                "relaying": adv.is_relaying(si) if repeater else None,
             }
         )
     out.sort(key=lambda d: (not d["connectable"], -(d["rssi"] or -999)))
@@ -1538,7 +1420,12 @@ async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
     """
 
     async def fn(client):
+        # The same field set a read returns, because the caller replaces what it is showing with
+        # this: anything missing here disappears from the screen, and the interval warning that
+        # suggested waking the device is exactly what would vanish.
         fields = await blethr.async_read_fields(client)
+        fields.update(await _read_fw_info(client))
+        fields.update(_source_interval_check(hass, fields))
         return {
             "ok": True,
             "mac": mac.upper(),

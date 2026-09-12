@@ -83,7 +83,7 @@ WINDOW_MS_MIN, WINDOW_MS_MAX = 5.0, 50.0
 SCAN_INTERVAL_MS_MIN, SCAN_INTERVAL_MS_MAX = 3000, 10000
 
 # How long to let a notification subscription settle before the first command, and how many times
-# to send a command whose reply never came back.
+# to send a command while the subscription has not proved itself yet.
 NOTIFY_SETTLE_S = 0.4
 CMD_TRIES = 2
 
@@ -143,6 +143,7 @@ class _Session:
     def __init__(self, client) -> None:
         self._client = client
         self._waiters: dict[int, asyncio.Future] = {}
+        self._answered = False  # has any command in this session had its reply back yet
         self._write_response = True
 
     def _on_notify(self, _sender, data: bytearray) -> None:
@@ -177,12 +178,18 @@ class _Session:
     async def cmd(self, opcode: int, payload: bytes = b"", timeout: float = 8.0) -> bytes:
         """Send one command, return the notification that echoes the same opcode.
 
-        Sent twice if the first reply never arrives. A lost reply is not the same as a lost
-        write: the commands here are reads, or writes of a value the caller already decided on,
-        so repeating one costs a round trip and changes nothing that was not going to change.
+        Sent twice if the first reply never arrives, but only while nothing in this session has
+        answered yet: that is the case the retry exists for, a subscription that was not live when
+        the first command went out. Once one reply has come back the subscription is working, so a
+        later timeout is the device not answering, and sending again only doubles the wait. It
+        matters because a bulk read gives each device a fixed budget, and six commands each waiting
+        twice can overrun it and turn readable per-field errors into one flat timeout.
+
+        Repeating is safe for these particular commands: they are reads, or writes of a value the
+        caller already decided on, so a second one changes nothing that was not going to change.
         """
         last: Exception | None = None
-        for _ in range(CMD_TRIES):
+        for _ in range(CMD_TRIES if not self._answered else 1):
             loop = asyncio.get_running_loop()
             fut: asyncio.Future = loop.create_future()
             self._waiters[opcode] = fut
@@ -191,7 +198,11 @@ class _Session:
                     self._client.write_gatt_char(BLETHR_CHAR, bytes([opcode]) + payload, response=self._write_response),
                     timeout=8,
                 )
-                return await asyncio.wait_for(fut, timeout)
+                reply = await asyncio.wait_for(fut, timeout)
+                # A reply proves the subscription is live, so later timeouts are the device and
+                # not this race, and retrying them would only double the wait.
+                self._answered = True
+                return reply
             except TimeoutError as err:
                 last = err
             finally:

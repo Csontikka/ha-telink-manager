@@ -286,8 +286,9 @@ class TelinkManagerPanel extends HTMLElement {
                    background: var(--tm-accent-soft); color: var(--tm-accent); }
         .cov-stale { color: var(--tm-warn); font-weight: 600; }
         .dot.stale { background: var(--tm-warn); }
-        /* Marks a device whose packet counter has stopped: the values are the last it sent. */
-        .stale { color: var(--tm-warn); margin-left: 4px; cursor: help; font-size: 12px; }
+        /* Marks a device whose packet counter has stopped: the values are the last it sent.
+           Deliberately not .stale, which would also match the .dot.stale used for a silent proxy. */
+        .stale-mark { color: var(--tm-warn); margin-left: 4px; cursor: help; font-size: 12px; }
         .cov-hint code { font-size: 10.5px; }
         td.cov-c { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; border-left: 1px solid var(--tm-border); }
         td.cov-none { color: var(--tm-text-2); font-weight: 400; opacity: .5; }
@@ -507,18 +508,22 @@ class TelinkManagerPanel extends HTMLElement {
     // counter below never fires for it. What it stops sending is the reading it exists to pass
     // on, and that is visible the first time it is seen rather than after a wait.
     if (d.relaying === false) {
-      return `<span class="stale" title="This repeater has stopped relaying: its advertisement no`
+      return `<span class="stale-mark" title="This repeater has stopped relaying: its advertisement no`
         + ` longer carries its source's reading, only its own battery and error count. The`
         + ` temperature shown is the last one it heard. Try Wake, and check that its interval`
         + ` matches how often the source advertises.">⏸</span>`;
     }
-    const s = d.stale_s;
-    if (s == null || s < 120) return "";
+    // The counter steps once per measurement, and that period is set per device and can be
+    // minutes. So the limit comes from the device's own settings, and a device that has never been
+    // read gets no verdict rather than a guess: calling a healthy slow thermometer stopped would
+    // be worse than saying nothing.
+    const s = d.stale_s, limit = d.stale_limit_s;
+    if (s == null || limit == null || s < limit) return "";
     const mins = Math.floor(s / 60);
     const how = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
-    return `<span class="stale" title="Nothing new for ${how}: the packet counter has not moved, so the`
-      + ` readings shown are the last ones it sent, not current ones. A repeater in this state has`
-      + ` lost its source; try Wake.">⏸</span>`;
+    return `<span class="stale-mark" title="Nothing new for ${how}, against a measurement period of`
+      + ` ${Math.round(limit / 3)} s: the packet counter has not moved, so the readings shown are`
+      + ` the last ones it sent, not current ones.">⏸</span>`;
   }
 
   _battCell(d) {
@@ -908,14 +913,15 @@ class TelinkManagerPanel extends HTMLElement {
     // whatever a search happens to catch, so nothing on this screen would otherwise say anything.
     if (!idle.length && f.source_interval_ok === false) {
       const advS = (f.source_adv_interval_ms / 1000).toFixed(1);
+      const range = (f.limits && f.limits.scan_interval_ms) || [3000, 10000];
       warn = f.source_interval_unusable
         ? `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-danger)">Its source advertises every ${advS} s,
-           which is faster than this firmware can follow at all — no setting here will work.
-           Slow the <em>source</em> down to ${ms(f.limits ? f.limits.scan_interval_ms_min : 3000)} or more first.</div>`
+           which is outside what this firmware can follow at all — no setting here will work.
+           Change the <em>source</em> to advertise between ${ms(range[0])} and ${ms(range[1])} first.</div>`
         : `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-warn)">Beacon interval ${ms(f.scan_interval_ms)}
-           but its source advertises every ${advS} s. The firmware only locks on within 100 ms of
-           what it expects, so it never will: it will search, catch the odd packet, and search
-           again. Set this to ${f.source_adv_interval_ms} ms under Edit.</div>`;
+           but its source advertises every ${advS} s, as last read. The firmware only locks on
+           within 100 ms of what it expects, so it never will: it will search, catch the odd
+           packet, and search again. Set this to ${f.source_adv_interval_ms} ms under Edit.</div>`;
     }
 
     return `<div class="ro">
@@ -940,8 +946,8 @@ class TelinkManagerPanel extends HTMLElement {
             f.scanning === false ? ""
               : f.source_adv_interval_ms != null
                 ? (f.source_interval_ok
-                    ? `matches the source, which advertises every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s`
-                    : `source advertises every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s — these must agree`)
+                    ? `matches the source, which advertised every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s when last read`
+                    : `source advertises every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s when last read — these must agree`)
                 : "must match how often the source advertises")}
       ${row("Scan window", `${ms(f.scan_window_min_ms)} … ${ms(f.scan_window_max_ms)}`, "scan_window")}
       ${row("Services", (f.services || []).join(", ") || "—", "services")}

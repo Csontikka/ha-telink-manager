@@ -1,23 +1,10 @@
-"""Unit tests for spotting a device whose readings have stopped being current.
+"""Unit tests for the two checks that need Home Assistant's own state to answer.
 
-A repeater that has lost its source keeps broadcasting the last reading it heard, so the values
-alone cannot tell it from a healthy one. The packet counter can, and these cover the two pieces
-that read it.
+Reading an advertisement is covered in test_adv.py; these are the parts that compare a device
+against what we have stored about another one, or against what we asked it to do.
 """
 
 from custom_components.telink_manager import gatt
-from custom_components.telink_manager.const import DOMAIN
-
-BTHOME_UUID = "0000fcd2-0000-1000-8000-00805f9b34fb"
-
-# A real capture from a repeater: info, packet id 6, battery 0%, 25.32 C, 50.70 %, 2.933 V, and
-# two count16 fields carrying its own diagnostics.
-CAPTURE = bytes.fromhex("400006010002e40903ce130c750b3d14003d0e14")
-
-
-class _Adv:
-    def __init__(self, payload=None, uuid=BTHOME_UUID):
-        self.service_data = {uuid: payload} if payload is not None else {}
 
 
 class _Hass:
@@ -25,70 +12,13 @@ class _Hass:
         self.data: dict = {}
 
 
-def test_packet_id_is_read_from_a_real_advertisement():
-    assert gatt._packet_id_from_adv(_Adv(CAPTURE)) == 6
-
-
-def test_packet_id_is_none_without_bthome_service_data():
-    """A parked device advertises its flags and nothing else, which is not a stopped counter."""
-    assert gatt._packet_id_from_adv(_Adv()) is None
-
-
-def test_packet_id_is_none_when_the_advertisement_is_encrypted():
-    """Bit 0 of the info byte marks encryption; without the key there is nothing to read."""
-    assert gatt._packet_id_from_adv(_Adv(bytes([0x41, 0x00, 0x06]))) is None
-
-
-def test_packet_id_is_none_on_an_unknown_object_id():
-    """Stopping at the first field we cannot size beats walking off the end of the payload."""
-    assert gatt._packet_id_from_adv(_Adv(bytes([0x40, 0xFE, 0x01, 0x00, 0x06]))) is None
-
-
-def test_a_device_seen_once_reports_nothing_rather_than_guessing():
-    hass = _Hass()
-    assert gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:FF", 7) == 0.0
-
-
-def test_a_counter_that_moves_resets_the_clock(monkeypatch):
-    hass = _Hass()
-    now = [1000.0]
-    monkeypatch.setattr(gatt.time, "monotonic", lambda: now[0])
-
-    gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:FF", 7)
-    now[0] += 300
-    assert gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:FF", 8) == 0.0
-
-
-def test_a_counter_that_stands_still_is_reported_in_seconds(monkeypatch):
-    hass = _Hass()
-    now = [1000.0]
-    monkeypatch.setattr(gatt.time, "monotonic", lambda: now[0])
-
-    gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:FF", 7)
-    now[0] += 425.5
-    assert gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:FF", 7) == 425.5
-
-
-def test_devices_are_tracked_apart():
-    """Two devices sharing one counter value must not reset each other's clock."""
-    hass = _Hass()
-    gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:01", 7)
-    gatt._stale_seconds(hass, "AA:BB:CC:DD:EE:02", 7)
-    assert set(hass.data[DOMAIN]["adv_pid"]) == {"AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"}
-
-
-def test_no_counter_means_no_judgement():
-    """Devices that advertise no packet id are not stale, they are simply not measurable this way."""
-    assert gatt._stale_seconds(_Hass(), "AA:BB:CC:DD:EE:FF", None) is None
-
-
 # --- the interval check --------------------------------------------------------------------------
 
 
 def _with_snapshot(monkeypatch, adv_interval_s):
     """Stand in for the snapshot store, which is the only thing this reads."""
-    snaps = [] if adv_interval_s is None else [{"fields": {"adv_interval_s": adv_interval_s}}]
-    monkeypatch.setattr(gatt.backups, "history", lambda hass, mac: snaps)
+    fields = {} if adv_interval_s is None else {"adv_interval_s": adv_interval_s}
+    monkeypatch.setattr(gatt.backups, "last_fields", lambda hass, mac: fields)
     return _Hass()
 
 
@@ -169,25 +99,29 @@ def test_a_difference_outside_the_requested_fields_still_says_something_useful()
     assert "did not set" in msg
 
 
-# --- a repeater that has stopped relaying ---------------------------------------------------------
+def test_a_source_just_inside_the_reachable_range_is_not_called_unusable(monkeypatch):
+    """The firmware accepts a period within 100 ms of the configured one, so a source at 2.9375 s
+    can be followed by setting 3000: calling that unusable would send someone to change a source
+    that is fine."""
+    hass = _with_snapshot(monkeypatch, 2.9375)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 3000})
+    assert "source_interval_unusable" not in out
+    assert out["source_interval_ok"] is True
 
 
-def test_a_full_advertisement_counts_as_relaying():
-    assert gatt._is_relaying(_Adv(CAPTURE)) is True
+def test_a_source_slower_than_the_range_is_unusable_too(monkeypatch):
+    """The upper end matters as much as the lower: advising someone to set 10500 would send them to
+    a field that refuses it."""
+    hass = _with_snapshot(monkeypatch, 10.5)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 10000})
+    assert out["source_interval_unusable"] is True
+    assert out["source_interval_ok"] is False
 
 
-def test_a_parked_advertisement_is_not_relaying():
-    """Packet id, voltage and error count: the device's own state, with nothing from the source.
-    Its counter is still moving, so nothing that watches for a stalled counter would notice."""
-    parked = bytes.fromhex("40000c0c910b3d3201")
-    assert gatt._is_relaying(_Adv(parked)) is False
-
-
-def test_flags_only_is_neither_relaying_nor_parked():
-    """The seconds between a disconnect and the next advertisement carry no payload at all, which
-    is a third state and not worth reporting as a device that has stopped."""
-    assert gatt._is_relaying(_Adv()) is None
-
-
-def test_an_encrypted_advertisement_is_not_judged():
-    assert gatt._is_relaying(_Adv(bytes([0x41, 0x00, 0x06]))) is None
+def test_an_unusable_source_is_never_also_reported_as_matching(monkeypatch):
+    """Both were true at once for a source between 2900 and 2999 ms, and the panel gates its
+    warning on the match, so nothing at all was shown."""
+    hass = _with_snapshot(monkeypatch, 2.5)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 3000})
+    assert out["source_interval_unusable"] is True
+    assert out["source_interval_ok"] is False
