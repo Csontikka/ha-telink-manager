@@ -1436,4 +1436,9 @@ async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
 
     # The search restarts when this returns and the connection is dropped, not while it is open:
     # the firmware stops scanning for as long as a client is connected.
-    return await _with_blethr_client(hass, mac, fn)
+    out = await _with_blethr_client(hass, mac, fn)
+    if not out.get("ok"):
+        # The device this action exists for is the one that is hardest to connect to, so a failure
+        # here is expected often enough that saying only "failed" would send someone to the device.
+        out["error"] = blethr.wake_failure_note(out.get("error"))
+    return out

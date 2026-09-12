@@ -442,3 +442,28 @@ async def test_command_gives_up_after_the_retry_and_says_which_opcode():
 
     assert "0x55" in str(err.value)
     assert len([w for w in client.writes if w[1][0] == CMD_CFG]) == blethr.CMD_TRIES
+
+
+# --- what a failed wake says ---------------------------------------------------------------------
+
+
+def test_a_wake_that_never_heard_the_device_explains_the_parked_interval():
+    """The repeater this action exists for advertises every 10.24 s, so one miss is ordinary and the
+    reply has to say so; otherwise a normal failure reads as dead hardware."""
+    note = blethr.wake_failure_note("no_connectable")
+    assert "no_connectable" in note
+    assert "10.24" in note and "Try again" in note
+
+
+def test_a_wake_with_no_error_at_all_still_explains_itself():
+    note = blethr.wake_failure_note(None)
+    assert "10.24" in note
+
+
+def test_a_wake_that_reached_the_device_says_so_instead():
+    """Heard but not connected is a different fault from never heard, and only the wording separates
+    them for whoever reads the message."""
+    note = blethr.wake_failure_note("TimeoutError()")
+    assert "TimeoutError()" in note
+    assert "was heard but" in note
+    assert "10.24" not in note

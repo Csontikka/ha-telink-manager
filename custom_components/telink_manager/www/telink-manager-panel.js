@@ -365,9 +365,13 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   _status(t) { this.querySelector("#status").textContent = t || ""; }
+  // Everything that lands here is a sentence for a person: a progress line, or an error carrying an
+  // exception's text, a MAC or a device-supplied name. The spinner is the only markup this sink is
+  // allowed to build, so the text is escaped rather than trusted -- a name is whatever the device
+  // chose to advertise, and callers cannot be relied on to remember which sink escapes.
   _mstatus(t, busy) {
     const el = this.querySelector("#m-status");
-    if (el) el.innerHTML = (busy ? `<span class="spinner"></span>` : "") + (t || "");
+    if (el) el.innerHTML = (busy ? `<span class="spinner"></span>` : "") + escHtml(t || "");
   }
 
   async _ws(msg) { return await this._hass.connection.sendMessagePromise(msg); }
@@ -2122,8 +2126,8 @@ class TelinkManagerPanel extends HTMLElement {
     this._mstatus("Loading…", true);
     let r;
     try { r = await this._ws({ type: "telink_manager/coverage" }); }
-    catch (e) { this._mstatus(`Error: ${escHtml(this._errMsg(e))}`); return; }
-    if (!r || !r.ok) { this._mstatus(`Error: ${escHtml((r && r.error) || "coverage unavailable")}`); return; }
+    catch (e) { this._mstatus(`Error: ${this._errMsg(e)}`); return; }
+    if (!r || !r.ok) { this._mstatus(`Error: ${(r && r.error) || "coverage unavailable"}`); return; }
     this._mstatus("");
     this._cov = r;
     this._renderCoverage();
