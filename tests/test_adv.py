@@ -152,3 +152,36 @@ def test_an_unknown_period_gives_no_threshold():
     measuring every ten minutes broken for doing what it was told."""
     assert adv.stale_threshold_s(None) is None
     assert adv.stale_threshold_s(0) is None
+
+
+# --- why a connection failed ---------------------------------------------------------------------
+
+
+def test_a_device_nothing_has_heard_is_told_apart_from_one_that_refuses():
+    """Three situations arrive as the same TimeoutError, and they need different actions. This one is
+    the only one where the device itself might be the problem."""
+    note = adv.unreachable_note("TimeoutError()", rssi=None)
+    assert "TimeoutError()" in note
+    assert "nothing has heard" in note
+    assert "battery is flat" in note
+
+
+def test_a_device_only_passive_listeners_hear_says_so():
+    """The bench case: plainly alive in every list, unreachable from either server, because what
+    hears it cannot open a connection."""
+    note = adv.unreachable_note("no_connectable", rssi=-72, source="proxy-kitchen", connectable=False)
+    assert "-72 dBm" in note and "proxy-kitchen" in note
+    assert "connectable proxy" in note
+
+
+def test_a_device_in_range_that_will_not_complete_a_connection_is_called_distance():
+    """A retry is the wrong advice here, and saying so is the point: an advertisement carries
+    further than a connection holds."""
+    note = adv.unreachable_note("TimeoutError()", rssi=-88, connectable=True)
+    assert "-88 dBm" in note
+    assert "not a retry" in note
+
+
+def test_the_note_never_comes_back_empty_handed():
+    note = adv.unreachable_note(None, rssi=None)
+    assert note.startswith("no connection")

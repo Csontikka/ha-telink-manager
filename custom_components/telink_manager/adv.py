@@ -169,3 +169,38 @@ def stale_threshold_s(measure_period_s: float | None) -> float | None:
     if not measure_period_s or measure_period_s <= 0:
         return None
     return max(120.0, 3.0 * measure_period_s)
+
+
+def unreachable_note(
+    error: str | None, *, rssi: int | None = None, source: str | None = None, connectable: bool = False
+) -> str:
+    """Why a connection failed, told apart into the three cases that need different actions.
+
+    A bare `TimeoutError()` is the same message for three unrelated situations, and the useful
+    information is already in Home Assistant: whether anything has heard the device lately, how
+    strongly, and whether any adapter or proxy that can open a connection is among the listeners.
+    On the bench a thermometer sat at -72 dBm, plainly alive in every list, and refused every
+    connection from either server for an hour. That is not a broken device and not a flat battery,
+    and a timeout says neither.
+
+    Repeaters get their own note as well, because a repeater that stopped searching advertises at
+    10.24 s and is hard to catch for a reason that does not apply to anything else.
+    """
+    err = (error or "").strip() or "no connection"
+    if rssi is None:
+        return (
+            err + ": nothing has heard this device recently, so there was nothing to connect to. "
+            "It is out of range of every adapter and proxy, switched off, or its battery is flat."
+        )
+    where = f" by {source}" if source else ""
+    if not connectable:
+        return (
+            err + f": heard at {rssi} dBm{where}, but only by a listener that cannot open a "
+            "connection. Passive proxies report a device without being able to talk to it. This "
+            "needs a connectable proxy within range of it."
+        )
+    return (
+        err + f": heard at {rssi} dBm{where} and something in range can open connections, but the "
+        "connection did not complete. At this signal that is usually distance: an advertisement "
+        "carries further than a connection holds. A proxy nearer to it is the fix, not a retry."
+    )

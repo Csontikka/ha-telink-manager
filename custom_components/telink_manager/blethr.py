@@ -451,26 +451,19 @@ async def async_reboot(client) -> dict:
 
 
 def wake_failure_note(error: str | None) -> str:
-    """Why a failed wake is often not a dead repeater, said in the reply rather than left to guessing.
+    """Add the one thing a repeater's failed wake needs on top of the general diagnosis.
 
-    A repeater that has given up on its source advertises at the longest interval the stack allows,
-    10.24 s, and a connection can only begin on one of those advertisements. So the device this
-    action exists for is exactly the device that is hardest to reach: on the bench, fourteen direct
-    attempts over nine minutes all failed on a repeater that then answered at once through a proxy
-    standing closer to it. A bare failure there reads as broken hardware, and the next step taken
-    is usually a trip to power-cycle something that only needed asking twice.
-
-    Two cases are worth telling apart, because only one of them says anything is wrong: never
-    hearing the device at all, and hearing it but failing to finish the connection.
+    The caller already says whether the device was heard, how strongly, and whether anything in
+    range can open a connection. What only applies here is the interval: a repeater that has given
+    up on its source advertises at 10.24 s, the longest the stack allows, and a connection can only
+    begin on one of those advertisements. So the device this action exists for is exactly the device
+    that is hardest to reach. On the bench, fourteen direct attempts over nine minutes all failed on
+    a repeater that then answered at once through a proxy standing closer to it. Without that said,
+    one ordinary miss reads as broken hardware, and the next step taken is usually a trip to
+    power-cycle something that only needed asking twice.
     """
-    err = (error or "").strip()
-    if not err or "no_connectable" in err:
-        return (
-            (err or "not heard") + ": nothing has heard this repeater recently. A repeater that stopped searching only "
-            "advertises every 10.24 s, so a first attempt missing it is ordinary. Try again, and if "
-            "several attempts fail, a Bluetooth proxy nearer to it will reach it when this host cannot."
-        )
+    base = (error or "no connection").strip().rstrip(".")
     return (
-        err + ": the repeater was heard but the connection did not complete, which happens on a weak "
-        "link. Trying again usually works; a proxy nearer to it works better."
+        base + ". A repeater that has stopped searching advertises only every 10.24 s, so one "
+        "attempt missing it is ordinary. Try again before treating it as a fault."
     )

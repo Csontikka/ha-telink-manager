@@ -677,7 +677,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
     _LOGGER.warning("PVVX read failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": last_err}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
 
 
 async def async_write(hass: HomeAssistant, mac: str, changes: dict, retries: int = 3) -> dict:
@@ -745,7 +745,7 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
             await _safe_disconnect(client)
         await asyncio.sleep(4)
     _LOGGER.warning("PVVX write failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": last_err}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
 
 
 def _write_mismatch(changes: dict, after: dict) -> str:
@@ -776,6 +776,23 @@ async def _with_client(hass: HomeAssistant, mac: str, fn, retries: int = 2) -> d
         return await _with_client_locked(hass, mac, fn, retries)
 
 
+def _unreachable(hass: HomeAssistant, mac: str, last_err: str) -> str:
+    """Turn a bare connection failure into the three cases that need different actions.
+
+    Everything it needs is already cached: the last advertisement says whether anything hears the
+    device and how strongly, and asking for a connectable device says whether any listener in range
+    can actually talk to it. Neither costs radio traffic.
+    """
+    si = bluetooth.async_last_service_info(hass, mac, connectable=False)
+    dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
+    return adv.unreachable_note(
+        last_err,
+        rssi=getattr(si, "rssi", None),
+        source=getattr(si, "source", None),
+        connectable=dev is not None,
+    )
+
+
 async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -> dict:
     last_err = "no attempt"
     for _ in range(retries):
@@ -795,7 +812,7 @@ async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -
             await _safe_disconnect(client)
         await asyncio.sleep(4)
     _LOGGER.warning("PVVX cmd failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": last_err}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
 
 
 # A name write leaves the firmware waiting to restart; give it this long to reboot and start
@@ -1352,7 +1369,7 @@ async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
     _LOGGER.warning("BLETHR cmd failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": last_err}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
 
 
 async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, changes: dict) -> dict:
