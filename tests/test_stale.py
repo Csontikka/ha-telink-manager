@@ -135,3 +135,35 @@ def test_scanning_switched_off_is_a_different_problem_and_not_reported_here(monk
 def test_no_source_set_is_a_different_problem_too(monkeypatch):
     hass = _with_snapshot(monkeypatch, 5.0)
     assert gatt._source_interval_check(hass, {"ext_mac": "00:00:00:00:00:00", "scan_interval_ms": 5000}) == {}
+
+
+# --- naming what a write could not store ---------------------------------------------------------
+
+
+def test_a_clamped_field_is_named_with_both_values():
+    """Several of these fields are quantised and the device rounds to what it can hold. Saying so
+    beats a bare failure for a write that mostly landed."""
+    msg = gatt._write_mismatch({"measure_mult": 1}, {"measure_mult": 2, "adv_interval_raw": 160})
+    assert "measure_mult" in msg
+    assert "asked for 1" in msg
+    assert "stored 2" in msg
+
+
+def test_fields_that_landed_are_not_mentioned():
+    msg = gatt._write_mismatch(
+        {"measure_mult": 1, "adv_interval_raw": 160}, {"measure_mult": 2, "adv_interval_raw": 160}
+    )
+    assert "adv_interval_raw" not in msg
+
+
+def test_every_moved_field_is_listed():
+    msg = gatt._write_mismatch({"a": 1, "b": 2}, {"a": 9, "b": 8})
+    assert "a: asked for 1, device stored 9" in msg
+    assert "b: asked for 2, device stored 8" in msg
+
+
+def test_a_difference_outside_the_requested_fields_still_says_something_useful():
+    """The read-back can differ in a byte this write never named. That is still worth reporting,
+    and reporting it as a clamp of a field the caller set would be wrong."""
+    msg = gatt._write_mismatch({"measure_mult": 2}, {"measure_mult": 2})
+    assert "did not set" in msg

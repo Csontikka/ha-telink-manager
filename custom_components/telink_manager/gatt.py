@@ -811,14 +811,18 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
             # Guard the length first: a glitchy device could return a short read-back, and an
             # IndexError here would be misclassified as a connection error and trigger a retry.
             ok = len(after) >= 11 and bytes(after[0:9]) == bytes(target[0:9]) and after[10] == target[10]
-            return {
+            after_parsed = pvvx_struct.parse(after, fw)
+            out = {
                 "ok": ok,
                 "mac": mac,
                 "verified": ok,
                 "before": pvvx_struct.parse(current, fw),
-                "after": pvvx_struct.parse(after, fw),
+                "after": after_parsed,
                 "target_raw": target.hex(),
             }
+            if not ok:
+                out["error"] = _write_mismatch(changes, after_parsed)
+            return out
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
             _LOGGER.debug("PVVX write attempt failed %s: %s", mac, last_err)
@@ -827,6 +831,27 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
         await asyncio.sleep(4)
     _LOGGER.warning("PVVX write failed for %s after retries: %s", mac, last_err)
     return {"ok": False, "mac": mac, "error": last_err}
+
+
+def _write_mismatch(changes: dict, after: dict) -> str:
+    """Why a write did not verify, named rather than left blank.
+
+    The device is allowed to store something other than what it was asked for: several of these
+    fields are quantised, and it rounds to what its own representation can hold. The read-back then
+    differs from the target and the write is correctly reported as unverified, but with nothing
+    said about it the caller sees a bare failure for a write that mostly landed, and has to diff
+    two parsed structures by eye to find out which field moved.
+    """
+    moved = [
+        f"{key}: asked for {want}, device stored {after.get(key)}"
+        for key, want in sorted(changes.items())
+        if key in after and after.get(key) != want
+    ]
+    if moved:
+        return "the device adjusted " + "; ".join(moved)
+    # Everything asked for is present, so something else in the struct moved: a field this write
+    # did not name, or a byte the device rewrote on its own.
+    return "the device stored a configuration that differs from the one written, in a field this write did not set"
 
 
 async def _with_client(hass: HomeAssistant, mac: str, fn, retries: int = 2) -> dict:
