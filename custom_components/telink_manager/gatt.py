@@ -274,6 +274,48 @@ def _battery_from_adv(si) -> dict:
     return {"battery": None, "battery_v": None, "battery_src": None}
 
 
+def _packet_id_from_adv(si) -> int | None:
+    """The BTHome packet counter, which every one of these devices increments per measurement.
+
+    It is the only field that is guaranteed to change between two advertisements, so it is what
+    tells a device that has stopped from one whose readings happen to be steady.
+    """
+    raw = (getattr(si, "service_data", None) or {}).get(_BTHOME_UUID)
+    if not raw:
+        return None
+    b = bytes(raw)
+    if not b or b[0] & 0x01:  # encrypted: nothing to read without the key
+        return None
+    i = 1
+    while i < len(b):
+        ln = _BTHOME_LEN.get(b[i])
+        if ln is None or i + 1 + ln > len(b):
+            return None
+        if b[i] == 0x00:
+            return b[i + 1]
+        i += 1 + ln
+    return None
+
+
+def _stale_seconds(hass: HomeAssistant, mac: str, packet_id: int | None) -> float | None:
+    """How long this device's packet counter has been standing still, in seconds.
+
+    A repeater that has lost its source keeps advertising the last reading it heard, unchanged and
+    indefinitely, so it looks alive and current to anything that only reads the values. The counter
+    is what gives it away. None when there is nothing to judge: no counter in the advertisement, or
+    this is the first time we have seen one.
+    """
+    if packet_id is None:
+        return None
+    seen = hass.data.setdefault(DOMAIN, {}).setdefault("adv_pid", {})
+    now = time.monotonic()
+    prev = seen.get(mac)
+    if prev is None or prev[0] != packet_id:
+        seen[mac] = (packet_id, now)
+        return 0.0
+    return round(now - prev[1], 1)
+
+
 def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
     """The user's own Home Assistant name for this thermometer (the device's name_by_user), matched
     by BLE MAC. None if there is no device or the user never set a name. Read-only, no BLE.
@@ -385,6 +427,10 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 "battery": batt["battery"],
                 "battery_v": batt["battery_v"],
                 "battery_src": batt["battery_src"],
+                # Seconds the packet counter has stood still. A device that has stopped keeps
+                # advertising its last reading, so the values alone cannot tell it from a healthy
+                # one; this can.
+                "stale_s": _stale_seconds(hass, addr, _packet_id_from_adv(si)),
             }
         )
     out.sort(key=lambda d: (not d["connectable"], -(d["rssi"] or -999)))

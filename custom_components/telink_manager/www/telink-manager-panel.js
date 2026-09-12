@@ -286,6 +286,8 @@ class TelinkManagerPanel extends HTMLElement {
                    background: var(--tm-accent-soft); color: var(--tm-accent); }
         .cov-stale { color: var(--tm-warn); font-weight: 600; }
         .dot.stale { background: var(--tm-warn); }
+        /* Marks a device whose packet counter has stopped: the values are the last it sent. */
+        .stale { color: var(--tm-warn); margin-left: 4px; cursor: help; font-size: 12px; }
         .cov-hint code { font-size: 10.5px; }
         td.cov-c { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; border-left: 1px solid var(--tm-border); }
         td.cov-none { color: var(--tm-text-2); font-weight: 400; opacity: .5; }
@@ -490,6 +492,19 @@ class TelinkManagerPanel extends HTMLElement {
     return null;
   }
 
+  // A device that has stopped keeps broadcasting its last reading, so the values on screen look
+  // current when they are not. The packet counter is what gives it away: every one of these
+  // devices steps it per measurement, at worst every ten seconds.
+  _staleCell(d) {
+    const s = d.stale_s;
+    if (s == null || s < 120) return "";
+    const mins = Math.floor(s / 60);
+    const how = mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60} min` : `${mins} min`;
+    return `<span class="stale" title="Nothing new for ${how}: the packet counter has not moved, so the`
+      + ` readings shown are the last ones it sent, not current ones. A repeater in this state has`
+      + ` lost its source; try Wake.">⏸</span>`;
+  }
+
   _battCell(d) {
     const b = this._battInfo(d);
     if (!b) return `<span class="muted">—</span>`;
@@ -535,7 +550,7 @@ class TelinkManagerPanel extends HTMLElement {
       </tr></thead>
       <tbody>${devs.map(d => `
         <tr class="dev${d.mac === this._selected ? " sel" : ""}" data-mac="${d.mac}" data-rssi="${d.rssi ?? ""}">
-          <td><span class="dot ${d.connectable ? "on" : "off"}"></span></td>
+          <td><span class="dot ${d.connectable ? "on" : "off"}"></span>${this._staleCell(d)}</td>
           <td><div class="fcell">
             <input class="${"fname" + (!d.friend_name && d.ha_name ? " has-adopt" : "")}" data-mac="${d.mac}" value="${esc(d.friend_name)}" placeholder="${escHtml(d.ha_name) || "name…"}" title="${escHtml(d.friend_name || d.ha_name || "")}">
             <span class="adopt" data-mac="${d.mac}" title="${d.ha_name ? `Use Home Assistant name (${escHtml(d.ha_name)})` : ""}" style="${(!d.friend_name && d.ha_name) ? "" : "visibility:hidden"}"><svg viewBox="0 0 24 24"><path d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg></span>
