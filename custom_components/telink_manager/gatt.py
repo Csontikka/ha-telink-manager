@@ -208,6 +208,23 @@ def async_coverage(hass: HomeAssistant) -> dict:
     return {"ok": True, "proxies": proxies, "devices": dev_list}
 
 
+def _remember_source(hass: HomeAssistant, mac: str, ext_mac: str | None) -> None:
+    """Note which thermometer a repeater follows, so a passive scan can use it.
+
+    A repeater snapshot deliberately is not parsed as a thermometer, because its blob is a
+    different struct and the thermometer parser would produce numbers that look real. So the
+    address it follows cannot be recovered from the backup history, and the only moment it is
+    known is when the device is read. Kept in memory only: after a restart there is no verdict
+    until the repeater is read once, which is the same honesty the rest of this module keeps.
+    """
+    src = (ext_mac or "").upper()
+    cache = hass.data.setdefault(DOMAIN, {}).setdefault("repeater_src", {})
+    if src and src != "00:00:00:00:00:00":
+        cache[mac.upper()] = src
+    else:
+        cache.pop(mac.upper(), None)
+
+
 def _stale_limit(hass: HomeAssistant, mac: str, repeater: bool = False) -> float | None:
     """How long this device's packet counter may stand still before it has stopped.
 
@@ -222,13 +239,12 @@ def _stale_limit(hass: HomeAssistant, mac: str, repeater: bool = False) -> float
     measurement of the source, not once per advertisement it receives. So the limit comes from the
     source's period, found through the address the repeater says it follows.
     """
-    fields = backups.last_fields(hass, mac)
     if repeater:
-        source = (fields.get("ext_mac") or "").upper()
-        if not source or source == "00:00:00:00:00:00":
+        source = (hass.data.get(DOMAIN, {}).get("repeater_src", {}) or {}).get(mac.upper())
+        if not source:
             return None
-        fields = backups.last_fields(hass, source)
-    return adv.stale_threshold_s(fields.get("measure_period_s"))
+        mac = source
+    return adv.stale_threshold_s(backups.last_fields(hass, mac).get("measure_period_s"))
 
 
 def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
@@ -673,6 +689,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                         continue
                     fields.update(await _read_fw_info(client))
                     fields.update(_source_interval_check(hass, fields))
+                    _remember_source(hass, mac, fields.get("ext_mac"))
                     await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)
@@ -1460,6 +1477,7 @@ async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
         fields = await blethr.async_read_fields(client)
         fields.update(await _read_fw_info(client))
         fields.update(_source_interval_check(hass, fields))
+        _remember_source(hass, mac, fields.get("ext_mac"))
         return {
             "ok": True,
             "mac": mac.upper(),
