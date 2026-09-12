@@ -185,3 +185,23 @@ def test_a_device_in_range_that_will_not_complete_a_connection_is_called_distanc
 def test_the_note_never_comes_back_empty_handed():
     note = adv.unreachable_note(None, rssi=None)
     assert note.startswith("no connection")
+
+
+# --- a repeater's battery belongs to two devices --------------------------------------------------
+
+
+def test_a_repeaters_percentage_moves_to_the_source_and_its_voltage_stays():
+    """One battery percentage type exists in BTHome, and the firmware spends it on the source. So the
+    field that reads as this device's charge describes another device's, and a repeater with a fresh
+    cell showed 0% because of it."""
+    out = adv.repeater_battery(adv.battery_from_adv(_Adv(RELAYING)))
+    assert out["battery"] is None
+    assert out["source_battery"] == 0
+    assert out["battery_v"] == 2.933
+
+
+def test_a_parked_repeater_has_no_source_percentage_to_move():
+    out = adv.repeater_battery(adv.battery_from_adv(_Adv(PARKED)))
+    assert out["battery"] is None
+    assert out["source_battery"] is None
+    assert out["battery_v"] == 2.961

@@ -208,15 +208,27 @@ def async_coverage(hass: HomeAssistant) -> dict:
     return {"ok": True, "proxies": proxies, "devices": dev_list}
 
 
-def _stale_limit(hass: HomeAssistant, mac: str) -> float | None:
+def _stale_limit(hass: HomeAssistant, mac: str, repeater: bool = False) -> float | None:
     """How long this device's packet counter may stand still before it has stopped.
 
     The counter steps once per measurement, and that period is set per device, so the limit has to
     come from the device rather than being chosen here. Taken from its newest snapshot, which costs
     one parse and no radio; unknown until the device has been read once, and no claim is made until
     then.
+
+    A repeater has no measurement period of its own, so asking it for one leaves every repeater
+    without a verdict. What steps its counter is its source: the firmware rebuilds its
+    advertisement only when the source's own packet counter changes, which happens once per
+    measurement of the source, not once per advertisement it receives. So the limit comes from the
+    source's period, found through the address the repeater says it follows.
     """
-    return adv.stale_threshold_s(backups.last_fields(hass, mac).get("measure_period_s"))
+    fields = backups.last_fields(hass, mac)
+    if repeater:
+        source = (fields.get("ext_mac") or "").upper()
+        if not source or source == "00:00:00:00:00:00":
+            return None
+        fields = backups.last_fields(hass, source)
+    return adv.stale_threshold_s(fields.get("measure_period_s"))
 
 
 def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
@@ -346,6 +358,8 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
         adv_name = _clean_adv_name(si.name, addr)
         if repeater:
             adv_name = ble_names.get(addr) or adv_name
+            # The percentage in a repeater's advertisement is its source's, not its own.
+            batt = adv.repeater_battery(batt)
         out.append(
             {
                 "mac": addr,
@@ -367,6 +381,9 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 "battery": batt["battery"],
                 "battery_v": batt["battery_v"],
                 "battery_src": batt["battery_src"],
+                # Set only for a repeater, where the advertised percentage describes the
+                # thermometer it repeats. Absent everywhere else, so nothing has to guess.
+                "source_battery": batt.get("source_battery"),
                 # Seconds the packet counter has stood still. A device that has stopped keeps
                 # advertising its last reading, so the values alone cannot tell it from a healthy
                 # one; this can.
@@ -378,7 +395,7 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 ),
                 # The limit is the device's own measurement period, not a number chosen here:
                 # a thermometer set to measure every ten minutes is not broken for doing it.
-                "stale_limit_s": _stale_limit(hass, addr),
+                "stale_limit_s": _stale_limit(hass, addr, repeater),
                 # For a repeater, whether its advertisement still carries the source's reading.
                 # Its own counter keeps moving while it is parked, so stale_s cannot see this.
                 "relaying": adv.is_relaying(si) if repeater else None,

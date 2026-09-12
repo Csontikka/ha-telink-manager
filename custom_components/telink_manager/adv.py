@@ -205,3 +205,20 @@ def unreachable_note(
         "connection did not complete. At this signal that is usually distance: an advertisement "
         "carries further than a connection holds. A proxy nearer to it is the fix, not a retry."
     )
+
+
+def repeater_battery(batt: dict) -> dict:
+    """Re-label a repeater's battery fields, because one of them is not about the repeater.
+
+    A repeater broadcasts the percentage of the thermometer it repeats and the voltage of its own
+    cell. There is exactly one battery percentage type in BTHome, so the firmware cannot send both,
+    and upstream documents which one it sends. The consequence is a field that reads as this device's
+    charge while describing another device's: a repeater with a fresh cell showed 0%, which is an
+    invitation to replace the wrong battery.
+
+    The panel knows to ignore it, but the field is also read by anything else that looks at a scan
+    result, so the correction belongs in the data rather than in one consumer. `battery` becomes
+    None, since a percentage for this device is not something the advertisement carries, and the
+    number moves to `source_battery`, where it is still useful and no longer misattributed.
+    """
+    return {**batt, "battery": None, "source_battery": batt.get("battery")}
