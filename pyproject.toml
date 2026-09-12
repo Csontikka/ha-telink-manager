@@ -8,3 +8,17 @@ select = ["E", "F", "W", "I"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["custom_components/telink_manager"]
+# The layers that only exist to talk to Home Assistant and to BLE radios. They are exercised
+# against real devices, not in unit tests, and mocking a proxy well enough to be worth the effort
+# has never looked like a good trade. Naming them here keeps the gate measuring the same thing
+# every run: before this, whether they counted at all depended on whether some test happened to
+# import them, so the reported figure could move from 96% to 42% without a line of code changing.
+omit = [
+    "custom_components/telink_manager/gatt.py",
+    "custom_components/telink_manager/websocket_api.py",
+    "custom_components/telink_manager/bulk.py",
+    "custom_components/telink_manager/__init__.py",
+]
