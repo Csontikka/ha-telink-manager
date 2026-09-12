@@ -483,13 +483,20 @@ class TelinkManagerPanel extends HTMLElement {
 
   // Battery from the advertisement (no connection). Some devices broadcast % directly (BTHome obj
   // 0x01); others only broadcast voltage (0x0C) -> estimate % from a CR2032 curve (2.2V=0, 3.0V=100).
+  //
+  // A repeater is the exception, and getting it wrong is worse than showing nothing: the percentage
+  // it broadcasts belongs to the thermometer it repeats, while the voltage is its own. Reading the
+  // percentage would put the source's charge on the repeater's row, so a device with a full cell
+  // can show as flat, which is exactly what it did before this was noticed. For those, the voltage
+  // is the only field that describes the device the row is about.
   _battInfo(d) {
-    if (d.battery != null) return { pct: d.battery, est: false, v: d.battery_v };
-    if (d.battery_v != null) {
-      const pct = Math.max(0, Math.min(100, Math.round((d.battery_v * 1000 - 2200) / 8)));
-      return { pct, est: true, v: d.battery_v };
-    }
-    return null;
+    const fromVolts = () => d.battery_v == null ? null : {
+      pct: Math.max(0, Math.min(100, Math.round((d.battery_v * 1000 - 2200) / 8))),
+      est: true, v: d.battery_v, own: true,
+    };
+    if (d.blethr) return fromVolts();
+    if (d.battery != null) return { pct: d.battery, est: false, v: d.battery_v, own: true };
+    return fromVolts();
   }
 
   // A device that has stopped keeps broadcasting its last reading, so the values on screen look
@@ -509,9 +516,12 @@ class TelinkManagerPanel extends HTMLElement {
     const b = this._battInfo(d);
     if (!b) return `<span class="muted">—</span>`;
     const color = b.pct < 20 ? "#e53935" : (b.pct < 40 ? "#ffb300" : "#4caf50");
-    const tip = b.est
-      ? `≈ estimated from ${b.v != null ? b.v.toFixed(2) + " V" : "voltage"} (device broadcasts voltage, not %)`
-      : `advertised battery level${b.v != null ? ` · ${b.v.toFixed(2)} V` : ""}`;
+    const tip = d.blethr
+      ? `≈ this repeater's own cell, estimated from ${b.v.toFixed(2)} V. The percentage it`
+        + ` broadcasts belongs to the thermometer it repeats, not to itself.`
+      : b.est
+        ? `≈ estimated from ${b.v != null ? b.v.toFixed(2) + " V" : "voltage"} (device broadcasts voltage, not %)`
+        : `advertised battery level${b.v != null ? ` · ${b.v.toFixed(2)} V` : ""}`;
     return `<span title="${tip}" style="color:${color};font-weight:600">${b.est ? "~" : ""}${b.pct}%</span>`;
   }
 
