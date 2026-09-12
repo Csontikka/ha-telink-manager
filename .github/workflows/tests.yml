@@ -5,6 +5,10 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # So a branch can be tested by the real CI before it becomes a pull request. Without this,
+  # work in progress is only ever checked locally, and the first CI run of a long branch is
+  # also the run that is supposed to gate merging it.
+  workflow_dispatch:
 
 jobs:
   lint:
