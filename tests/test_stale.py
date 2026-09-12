@@ -167,3 +167,27 @@ def test_a_difference_outside_the_requested_fields_still_says_something_useful()
     and reporting it as a clamp of a field the caller set would be wrong."""
     msg = gatt._write_mismatch({"measure_mult": 2}, {"measure_mult": 2})
     assert "did not set" in msg
+
+
+# --- a repeater that has stopped relaying ---------------------------------------------------------
+
+
+def test_a_full_advertisement_counts_as_relaying():
+    assert gatt._is_relaying(_Adv(CAPTURE)) is True
+
+
+def test_a_parked_advertisement_is_not_relaying():
+    """Packet id, voltage and error count: the device's own state, with nothing from the source.
+    Its counter is still moving, so nothing that watches for a stalled counter would notice."""
+    parked = bytes.fromhex("40000c0c910b3d3201")
+    assert gatt._is_relaying(_Adv(parked)) is False
+
+
+def test_flags_only_is_neither_relaying_nor_parked():
+    """The seconds between a disconnect and the next advertisement carry no payload at all, which
+    is a third state and not worth reporting as a device that has stopped."""
+    assert gatt._is_relaying(_Adv()) is None
+
+
+def test_an_encrypted_advertisement_is_not_judged():
+    assert gatt._is_relaying(_Adv(bytes([0x41, 0x00, 0x06]))) is None

@@ -503,6 +503,15 @@ class TelinkManagerPanel extends HTMLElement {
   // current when they are not. The packet counter is what gives it away: every one of these
   // devices steps it per measurement, at worst every ten seconds.
   _staleCell(d) {
+    // A repeater that has given up on its source keeps its own counter moving, so the stalled
+    // counter below never fires for it. What it stops sending is the reading it exists to pass
+    // on, and that is visible the first time it is seen rather than after a wait.
+    if (d.relaying === false) {
+      return `<span class="stale" title="This repeater has stopped relaying: its advertisement no`
+        + ` longer carries its source's reading, only its own battery and error count. The`
+        + ` temperature shown is the last one it heard. Try Wake, and check that its interval`
+        + ` matches how often the source advertises.">⏸</span>`;
+    }
     const s = d.stale_s;
     if (s == null || s < 120) return "";
     const mins = Math.floor(s / 60);

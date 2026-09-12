@@ -297,6 +297,36 @@ def _packet_id_from_adv(si) -> int | None:
     return None
 
 
+def _is_relaying(si) -> bool | None:
+    """Whether a repeater's advertisement still carries the reading it exists to pass on.
+
+    A repeater that has given up on its source advertises only its own state: a packet counter,
+    its voltage and its error count. The counter keeps moving, so nothing that watches for a
+    stalled counter will notice, and the consumer keeps showing the last relayed temperature
+    because it has no reason to drop it. What changes is that the temperature stops being in the
+    packet at all, and that is unambiguous the first time it is seen.
+
+    None when there is no BTHome payload to judge, which is a different state again: the few
+    seconds between a disconnect and the next advertisement, when the device is carrying flags
+    and nothing else.
+    """
+    raw = (getattr(si, "service_data", None) or {}).get(_BTHOME_UUID)
+    if not raw:
+        return None
+    b = bytes(raw)
+    if not b or b[0] & 0x01:
+        return None
+    i = 1
+    while i < len(b):
+        ln = _BTHOME_LEN.get(b[i])
+        if ln is None or i + 1 + ln > len(b):
+            return None
+        if b[i] == 0x02:  # temperature, which only ever comes from the source
+            return True
+        i += 1 + ln
+    return False
+
+
 def _stale_seconds(hass: HomeAssistant, mac: str, packet_id: int | None) -> float | None:
     """How long this device's packet counter has been standing still, in seconds.
 
@@ -467,6 +497,9 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 # advertising its last reading, so the values alone cannot tell it from a healthy
                 # one; this can.
                 "stale_s": _stale_seconds(hass, addr, _packet_id_from_adv(si)),
+                # For a repeater, whether its advertisement still carries the source's reading.
+                # Its own counter keeps moving while it is parked, so stale_s cannot see this.
+                "relaying": _is_relaying(si) if repeater else None,
             }
         )
     out.sort(key=lambda d: (not d["connectable"], -(d["rssi"] or -999)))
