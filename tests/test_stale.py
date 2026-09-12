@@ -80,3 +80,58 @@ def test_devices_are_tracked_apart():
 def test_no_counter_means_no_judgement():
     """Devices that advertise no packet id are not stale, they are simply not measurable this way."""
     assert gatt._stale_seconds(_Hass(), "AA:BB:CC:DD:EE:FF", None) is None
+
+
+# --- the interval check --------------------------------------------------------------------------
+
+
+def _with_snapshot(monkeypatch, adv_interval_s):
+    """Stand in for the snapshot store, which is the only thing this reads."""
+    snaps = [] if adv_interval_s is None else [{"fields": {"adv_interval_s": adv_interval_s}}]
+    monkeypatch.setattr(gatt.backups, "history", lambda hass, mac: snaps)
+    return _Hass()
+
+
+def test_matching_interval_is_reported_as_matching(monkeypatch):
+    hass = _with_snapshot(monkeypatch, 5.0)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 5000})
+    assert out == {"source_adv_interval_ms": 5000, "source_interval_ok": True}
+
+
+def test_a_disagreement_of_more_than_a_hundred_milliseconds_is_a_mismatch(monkeypatch):
+    """The firmware accepts a packet only within 100 ms of when it expects one, so that is the
+    line: inside it the device locks on, outside it never does."""
+    hass = _with_snapshot(monkeypatch, 10.0)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 5000})
+    assert out["source_interval_ok"] is False
+    assert out["source_adv_interval_ms"] == 10000
+
+
+def test_a_hundred_milliseconds_of_disagreement_still_counts_as_matching(monkeypatch):
+    hass = _with_snapshot(monkeypatch, 5.1)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 5000})
+    assert out["source_interval_ok"] is True
+
+
+def test_a_source_faster_than_the_firmware_can_follow_is_called_out_separately(monkeypatch):
+    """Below the firmware's own minimum no setting on the repeater works, so the advice has to be
+    to slow the source down rather than to change a field that will not accept the value."""
+    hass = _with_snapshot(monkeypatch, 2.5)
+    out = gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 5000})
+    assert out["source_interval_unusable"] is True
+    assert out["source_interval_ok"] is False
+
+
+def test_nothing_is_claimed_without_a_snapshot_to_judge_against(monkeypatch):
+    hass = _with_snapshot(monkeypatch, None)
+    assert gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 5000}) == {}
+
+
+def test_scanning_switched_off_is_a_different_problem_and_not_reported_here(monkeypatch):
+    hass = _with_snapshot(monkeypatch, 5.0)
+    assert gatt._source_interval_check(hass, {"ext_mac": "AA:BB:CC:DD:EE:FF", "scan_interval_ms": 0}) == {}
+
+
+def test_no_source_set_is_a_different_problem_too(monkeypatch):
+    hass = _with_snapshot(monkeypatch, 5.0)
+    assert gatt._source_interval_check(hass, {"ext_mac": "00:00:00:00:00:00", "scan_interval_ms": 5000}) == {}
