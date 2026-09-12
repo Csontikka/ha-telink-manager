@@ -890,9 +890,24 @@ class TelinkManagerPanel extends HTMLElement {
     const idle = [];
     if (!f.ext_mac || /^(00:){5}00$/.test(f.ext_mac)) idle.push("no source thermometer is set");
     if (f.scanning === false) idle.push("scanning is off (scan interval 0)");
-    const warn = idle.length
+    let warn = idle.length
       ? `<div class="cov-hint" style="max-width:none;margin:0 0 10px">This repeater is showing nothing: ${idle.join(", and ")}. Fix it under Edit.</div>`
       : "";
+    // The third way a repeater stops dead, and the one that hides best: an interval that does not
+    // match how often the source actually advertises. It then hears the source, rejects the
+    // timing, starts over, and keeps doing that. The display still updates now and then, from
+    // whatever a search happens to catch, so nothing on this screen would otherwise say anything.
+    if (!idle.length && f.source_interval_ok === false) {
+      const advS = (f.source_adv_interval_ms / 1000).toFixed(1);
+      warn = f.source_interval_unusable
+        ? `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-danger)">Its source advertises every ${advS} s,
+           which is faster than this firmware can follow at all — no setting here will work.
+           Slow the <em>source</em> down to ${ms(f.limits ? f.limits.scan_interval_ms_min : 3000)} or more first.</div>`
+        : `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-warn)">Beacon interval ${ms(f.scan_interval_ms)}
+           but its source advertises every ${advS} s. The firmware only locks on within 100 ms of
+           what it expects, so it never will: it will search, catch the odd packet, and search
+           again. Set this to ${f.source_adv_interval_ms} ms under Edit.</div>`;
+    }
 
     return `<div class="ro">
       ${warn}
@@ -913,7 +928,12 @@ class TelinkManagerPanel extends HTMLElement {
       ${row("RF TX power", f.rf_tx_dbm ? `VANT${f.rf_tx_dbm} dBm` : (f.rf_tx_power != null ? String(f.rf_tx_power) : "—"),
             "rf_tx_power", f.rf_tx_dbm ? `(${f.rf_tx_power})` : "")}
       ${row("Source beacon interval", f.scanning === false ? "off" : ms(f.scan_interval_ms), "scan_interval",
-            f.scanning === false ? "" : "must match how often the source advertises")}
+            f.scanning === false ? ""
+              : f.source_adv_interval_ms != null
+                ? (f.source_interval_ok
+                    ? `matches the source, which advertises every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s`
+                    : `source advertises every ${(f.source_adv_interval_ms / 1000).toFixed(1)} s — these must agree`)
+                : "must match how often the source advertises")}
       ${row("Scan window", `${ms(f.scan_window_min_ms)} … ${ms(f.scan_window_max_ms)}`, "scan_window")}
       ${row("Services", (f.services || []).join(", ") || "—", "services")}
 

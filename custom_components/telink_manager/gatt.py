@@ -316,6 +316,42 @@ def _stale_seconds(hass: HomeAssistant, mac: str, packet_id: int | None) -> floa
     return round(now - prev[1], 1)
 
 
+def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
+    """Does this repeater's interval match how often its source actually advertises?
+
+    This is the setting that stops a repeater dead while leaving nothing else to see. It waits for
+    a packet within 100 ms of when it expects one, so an interval that disagrees with the source
+    means it never locks on: it hears the source, rejects the timing, starts over, and repeats
+    that for as long as it has power. From the outside it looks alive. The display updates now and
+    then, from the packets a search stage happens to catch, and no error is reported anywhere.
+
+    The number to match is the source's ADVERTISING interval, not how often it takes a reading.
+    Those differ by the measurement multiplier, and a thermometer set to advertise every 2.5 s
+    while measuring every 10 cannot be followed at all, because the firmware's own minimum is 3 s.
+
+    Judged from the source's last snapshot, so it costs no radio traffic. Silent when there is no
+    snapshot to judge against, rather than guessing.
+    """
+    source = (fields.get("ext_mac") or "").upper()
+    if not source or source == "00:00:00:00:00:00":
+        return {}
+    interval = fields.get("scan_interval_ms")
+    if not interval:  # zero means scanning is off, which is a different problem, already reported
+        return {}
+    snaps = backups.history(hass, source)
+    for snap in reversed(snaps):
+        adv_s = (snap.get("fields") or {}).get("adv_interval_s")
+        if adv_s is None:
+            continue
+        adv_ms = int(round(adv_s * 1000))
+        out = {"source_adv_interval_ms": adv_ms, "source_interval_ok": abs(adv_ms - interval) <= 100}
+        if adv_ms < blethr.SCAN_INTERVAL_MS_MIN:
+            # No setting on this repeater can follow it; the source is what has to change.
+            out["source_interval_unusable"] = True
+        return out
+    return {}
+
+
 def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
     """The user's own Home Assistant name for this thermometer (the device's name_by_user), matched
     by BLE MAC. None if there is no device or the user never set a name. Read-only, no BLE.
@@ -704,6 +740,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                             pass
                         continue
                     fields.update(await _read_fw_info(client))
+                    fields.update(_source_interval_check(hass, fields))
                     await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)
