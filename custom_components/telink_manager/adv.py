@@ -179,9 +179,10 @@ def unreachable_note(
     A bare `TimeoutError()` is the same message for three unrelated situations, and the useful
     information is already in Home Assistant: whether anything has heard the device lately, how
     strongly, and whether any adapter or proxy that can open a connection is among the listeners.
-    On the bench a thermometer sat at -72 dBm, plainly alive in every list, and refused every
-    connection from either server for an hour. That is not a broken device and not a flat battery,
-    and a timeout says neither.
+    On the bench a thermometer at -72 dBm, present with a current reading in every list, refused
+    connections from both servers for several minutes and then answered normally. A timeout says
+    nothing about which of those it was, and the difference decides whether the next step is a
+    retry, a proxy, or a battery.
 
     Repeaters get their own note as well, because a repeater that stopped searching advertises at
     10.24 s and is hard to catch for a reason that does not apply to anything else.

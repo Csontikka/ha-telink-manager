@@ -167,8 +167,8 @@ def test_a_device_nothing_has_heard_is_told_apart_from_one_that_refuses():
 
 
 def test_a_device_only_passive_listeners_hear_says_so():
-    """The bench case: plainly alive in every list, unreachable from either server, because what
-    hears it cannot open a connection."""
+    """The case no retry can fix: the device is there and reporting, and what hears it has no way
+    to talk to it."""
     note = adv.unreachable_note("no_connectable", rssi=-72, source="proxy-kitchen", connectable=False)
     assert "-72 dBm" in note and "proxy-kitchen" in note
     assert "connectable proxy" in note
