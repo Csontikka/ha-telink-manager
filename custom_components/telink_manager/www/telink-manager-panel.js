@@ -905,12 +905,23 @@ class TelinkManagerPanel extends HTMLElement {
 
     // Two settings each stop a repeater dead on their own, and neither looks like a fault anywhere
     // else on this screen, so say it once at the top rather than leaving it to be pieced together.
+    // A command that did not answer is not a setting that is switched off, and for a repeater the
+    // two look identical on this screen: both leave the field empty. Saying "no source is set" for
+    // a read that simply lost that one answer sends someone to change a setting that was never
+    // wrong, so the unanswered case is named as itself and asks for a retry instead.
+    const lost = f.read_gaps || [];
     const idle = [];
-    if (!f.ext_mac || /^(00:){5}00$/.test(f.ext_mac)) idle.push("no source thermometer is set");
-    if (f.scanning === false) idle.push("scanning is off (scan interval 0)");
+    if (!lost.includes("which thermometer it repeats")
+        && (!f.ext_mac || /^(00:){5}00$/.test(f.ext_mac))) idle.push("no source thermometer is set");
+    if (!lost.length && f.scanning === false) idle.push("scanning is off (scan interval 0)");
     let warn = idle.length
       ? `<div class="cov-hint" style="max-width:none;margin:0 0 10px">This repeater is showing nothing: ${idle.join(", and ")}. Fix it under Edit.</div>`
       : "";
+    if (lost.length) {
+      warn += `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-warn)">Part of this read did not
+        answer: ${lost.join(", and ")}. What is shown for those is missing, not empty — read it again before
+        changing anything. A repeater that is busy searching turns the first attempts away.</div>`;
+    }
     // The third way a repeater stops dead, and the one that hides best: an interval that does not
     // match how often the source actually advertises. It then hears the source, rejects the
     // timing, starts over, and keeps doing that. The display still updates now and then, from

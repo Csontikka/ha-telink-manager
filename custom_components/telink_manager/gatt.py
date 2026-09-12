@@ -690,6 +690,9 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                     fields.update(await _read_fw_info(client))
                     fields.update(_source_interval_check(hass, fields))
                     _remember_source(hass, mac, fields.get("ext_mac"))
+                    # Which commands did not answer, so the screen can tell a device with no
+                    # source set apart from one whose source could not be read.
+                    fields["read_gaps"] = blethr.read_gaps(fields)
                     await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)

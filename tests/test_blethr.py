@@ -460,3 +460,26 @@ def test_the_wake_note_stands_alone_when_there_is_no_diagnosis():
     note = blethr.wake_failure_note(None)
     assert note.startswith("no connection")
     assert "10.24" in note
+
+
+# --- what a read did not get -----------------------------------------------------------------------
+
+
+def test_a_read_that_answered_everything_reports_no_gaps():
+    assert blethr.read_gaps({"ext_mac": "A4:C1:38:00:00:01", "scan_interval_ms": 10000}) == []
+
+
+def test_a_lost_source_command_is_named_as_lost_rather_than_empty():
+    """The distinction the panel needs: a device with no source set wants someone to set one, and a
+    device whose source could not be read wants the read repeated. Both leave the field empty."""
+    gaps = blethr.read_gaps({"ext_mac_error": "TimeoutError()"})
+    assert gaps == ["which thermometer it repeats"]
+
+
+def test_every_essential_that_failed_is_listed_in_a_stable_order():
+    gaps = blethr.read_gaps({"dev_id_error": "x", "cfg_error": "y", "ext_mac_error": "z"})
+    assert gaps == [
+        "which thermometer it repeats",
+        "its interval, windows and radio settings",
+        "its firmware and hardware identity",
+    ]

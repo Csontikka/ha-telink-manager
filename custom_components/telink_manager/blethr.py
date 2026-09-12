@@ -467,3 +467,28 @@ def wake_failure_note(error: str | None) -> str:
         base + ". A repeater that has stopped searching advertises only every 10.24 s, so one "
         "attempt missing it is ordinary. Try again before treating it as a fault."
     )
+
+
+# What a read asks the device for, and what each answer is needed for. The key is the field the
+# parser fills; a failed command leaves "<key>_error" behind instead, which is how a lost answer is
+# told apart from a device that genuinely has nothing to report.
+READ_ESSENTIALS = (
+    ("ext_mac", "which thermometer it repeats"),
+    ("cfg", "its interval, windows and radio settings"),
+    ("dev_id", "its firmware and hardware identity"),
+)
+
+
+def read_gaps(fields: dict) -> list[str]:
+    """Which parts of a read did not answer, named for a person rather than by opcode.
+
+    A read reports each command separately and returns what it got, which is the right design: one
+    lost answer should not throw away the rest. But the caller then cannot tell an absent field from
+    an unanswered command, and for a repeater those mean opposite things. A device with no source
+    set needs someone to set one. A device whose source could not be read needs the read repeated,
+    and telling its owner to go and set a source invites them to change a setting that was never
+    wrong.
+
+    Empty when everything answered, which is the normal case.
+    """
+    return [label for key, label in READ_ESSENTIALS if f"{key}_error" in fields]
