@@ -939,7 +939,7 @@ class TelinkManagerPanel extends HTMLElement {
         : `<div class="cov-hint" style="max-width:none;margin:0 0 10px;border-color:var(--tm-warn)">Beacon interval ${ms(f.scan_interval_ms)}
            but its source advertises every ${advS} s, as last read. The firmware only locks on
            within 100 ms of what it expects, so it never will: it will search, catch the odd
-           packet, and search again. Set this to ${f.source_adv_interval_ms} ms under Edit.</div>`;
+           packet, and search again. Set this to ${Math.min(Math.max(f.source_adv_interval_ms, range[0]), range[1])} ms under Edit.</div>`;
     }
 
     return `<div class="ro">

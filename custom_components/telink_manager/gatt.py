@@ -653,6 +653,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
     """Connect via proxy -> read config -> safe disconnect. Returns parsed fields."""
     mac = mac.upper()
     last_err = "no attempt"
+    reached = False  # whether the last failure came after the device had answered
     # Home Assistant caches each device's GATT table. Reflashing a device to different firmware moves
     # the command characteristic, and the cached table then points at a handle that no longer exists,
     # which surfaces as a bare "invalid handle". Detecting that once and rediscovering is cheaper than
@@ -663,6 +664,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
             dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
             if dev is None:
                 last_err = "no_connectable"
+                reached = False
                 await asyncio.sleep(5)
                 continue
             client = None
@@ -679,6 +681,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 expected = "blethr" if blethr.looks_like_blethr(getattr(dev, "name", None), mac) else None
                 if not rediscover and (family is None or (expected and family != expected)):
                     last_err = f"cached GATT table looks stale (offers {family or 'nothing'})"
+                    reached = True
                     rediscover = True
                     try:
                         await client.clear_cache()
@@ -694,24 +697,21 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                     # that as a successful read of an empty device is worse than admitting confusion.
                     if fields.get("scan_interval_ms") is None and not rediscover:
                         last_err = "device does not answer the repeater commands; rediscovering"
+                        reached = True
                         rediscover = True
                         try:
                             await client.clear_cache()
                         except Exception:  # noqa: BLE001
                             pass
                         continue
-                    fields.update(await _read_fw_info(client))
-                    fields.update(_source_interval_check(hass, fields))
-                    _remember_source(hass, mac, fields.get("ext_mac"))
-                    # Which commands did not answer, so the screen can tell a device with no
-                    # source set apart from one whose source could not be read.
-                    fields["read_gaps"] = blethr.read_gaps(fields)
+                    await _finish_blethr_fields(hass, mac, client, fields)
                     await async_remember_ble_name(hass, mac, fields.get("device_name"))
                     return {"ok": True, "mac": mac, "firmware": "blethr", "fields": fields}
                 fields = await _read_all_fields(client)
                 return {"ok": True, "mac": mac, "firmware": "pvvx", "fields": fields}
             except Exception as e:  # noqa: BLE001
                 last_err = repr(e)
+                reached = client is not None
                 # Per-attempt failures are routine over BLE proxies (out of range / busy); log at
                 # debug to avoid spamming the log during bulk reads. Final failure logged below.
                 _LOGGER.debug("PVVX read attempt failed %s: %s", mac, last_err)
@@ -727,7 +727,7 @@ async def async_read(hass: HomeAssistant, mac: str, retries: int = 3) -> dict:
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
     _LOGGER.warning("PVVX read failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err, reached)}
 
 
 async def async_write(hass: HomeAssistant, mac: str, changes: dict, retries: int = 3) -> dict:
@@ -743,10 +743,12 @@ async def async_write(hass: HomeAssistant, mac: str, changes: dict, retries: int
 
 async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retries: int) -> dict:
     last_err = "no attempt"
+    reached = False  # whether the last failure came after the device had answered
     for _ in range(retries):
         dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
         if dev is None:
             last_err = "no_connectable"
+            reached = False
             await asyncio.sleep(5)
             continue
         client = None
@@ -790,12 +792,13 @@ async def _async_write_locked(hass: HomeAssistant, mac: str, changes: dict, retr
             return out
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
+            reached = client is not None
             _LOGGER.debug("PVVX write attempt failed %s: %s", mac, last_err)
         finally:
             await _safe_disconnect(client)
         await asyncio.sleep(4)
     _LOGGER.warning("PVVX write failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err, reached)}
 
 
 def _write_mismatch(changes: dict, after: dict) -> str:
@@ -826,13 +829,18 @@ async def _with_client(hass: HomeAssistant, mac: str, fn, retries: int = 2) -> d
         return await _with_client_locked(hass, mac, fn, retries)
 
 
-def _unreachable(hass: HomeAssistant, mac: str, last_err: str) -> str:
+def _unreachable(hass: HomeAssistant, mac: str, last_err: str, reached: bool = False) -> str:
     """Turn a bare connection failure into the three cases that need different actions.
+
+    `reached` says the last attempt did connect and failed afterwards, which is none of the three:
+    the device was in range and answering, so advice about range or proxies would be wrong.
 
     Everything it needs is already cached: the last advertisement says whether anything hears the
     device and how strongly, and asking for a connectable device says whether any listener in range
     can actually talk to it. Neither costs radio traffic.
     """
+    if reached:
+        return adv.unreachable_note(last_err, reached=True)
     si = bluetooth.async_last_service_info(hass, mac, connectable=False)
     dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
     return adv.unreachable_note(
@@ -845,10 +853,12 @@ def _unreachable(hass: HomeAssistant, mac: str, last_err: str) -> str:
 
 async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -> dict:
     last_err = "no attempt"
+    reached = False  # whether the last failure came after the device had answered
     for _ in range(retries):
         dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
         if dev is None:
             last_err = "no_connectable"
+            reached = False
             await asyncio.sleep(5)
             continue
         client = None
@@ -857,12 +867,13 @@ async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -
             return await fn(client)
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
+            reached = client is not None
             _LOGGER.debug("PVVX cmd attempt failed %s: %s", mac, last_err)
         finally:
             await _safe_disconnect(client)
         await asyncio.sleep(4)
     _LOGGER.warning("PVVX cmd failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err, reached)}
 
 
 # A name write leaves the firmware waiting to restart; give it this long to reboot and start
@@ -1384,12 +1395,14 @@ async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 
     """
     mac = mac.upper()
     last_err = "no attempt"
+    reached = False  # whether the last failure came after the device had answered
     rediscover = False
     async with _dev_lock(hass, mac):
         for _ in range(retries + 1):
             dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
             if dev is None:
                 last_err = "no_connectable"
+                reached = False
                 await asyncio.sleep(5)
                 continue
             client = None
@@ -1414,12 +1427,13 @@ async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 
                 return await fn(client)
             except Exception as e:  # noqa: BLE001
                 last_err = repr(e)
+                reached = client is not None
                 _LOGGER.debug("BLETHR cmd attempt failed %s: %s", mac, last_err)
             finally:
                 await _safe_disconnect(client)
             await asyncio.sleep(4)
     _LOGGER.warning("BLETHR cmd failed for %s after retries: %s", mac, last_err)
-    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err)}
+    return {"ok": False, "mac": mac, "error": _unreachable(hass, mac, last_err, reached)}
 
 
 async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, changes: dict) -> dict:
@@ -1450,7 +1464,7 @@ async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, chang
         except ValueError as e:
             return {"ok": False, "mac": mac.upper(), "error": str(e)}
         fields = await blethr.async_read_fields(client)
-        fields.update(await _read_fw_info(client))
+        await _finish_blethr_fields(hass, mac, client, fields)
         verified = [v for k, v in written.items() if not k.endswith("_after")]
         return {
             "ok": bool(verified) and all(verified),
@@ -1460,6 +1474,22 @@ async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, chang
         }
 
     return await _with_blethr_client(hass, mac, fn)
+
+
+async def _finish_blethr_fields(hass: HomeAssistant, mac: str, client, fields: dict) -> None:
+    """Complete a repeater's fields the same way after a read, a write and a wake.
+
+    The panel replaces what it shows with whatever comes back from any of the three, so a field one
+    of them leaves out disappears from the screen. The one that mattered was the list of commands
+    that did not answer: without it, a source that merely could not be read is shown as no source
+    set, and the owner is told to go and set one.
+    """
+    fields.update(await _read_fw_info(client))
+    fields.update(_source_interval_check(hass, fields))
+    _remember_source(hass, mac, fields.get("ext_mac"))
+    # Which commands did not answer, so the screen can tell a device with no source set apart from
+    # one whose source could not be read.
+    fields["read_gaps"] = blethr.read_gaps(fields)
 
 
 async def async_blethr_reboot(hass: HomeAssistant, mac: str) -> dict:
@@ -1491,9 +1521,7 @@ async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
         # this: anything missing here disappears from the screen, and the interval warning that
         # suggested waking the device is exactly what would vanish.
         fields = await blethr.async_read_fields(client)
-        fields.update(await _read_fw_info(client))
-        fields.update(_source_interval_check(hass, fields))
-        _remember_source(hass, mac, fields.get("ext_mac"))
+        await _finish_blethr_fields(hass, mac, client, fields)
         return {
             "ok": True,
             "mac": mac.upper(),
@@ -1505,8 +1533,10 @@ async def async_blethr_wake(hass: HomeAssistant, mac: str) -> dict:
     # The search restarts when this returns and the connection is dropped, not while it is open:
     # the firmware stops scanning for as long as a client is connected.
     out = await _with_blethr_client(hass, mac, fn)
-    if not out.get("ok"):
-        # The device this action exists for is the one that is hardest to connect to, so a failure
-        # here is expected often enough that saying only "failed" would send someone to the device.
+    if not out.get("ok") and not str(out.get("error") or "").startswith("kind_mismatch"):
+        # A refusal because the device is a thermometer is not a connection problem, so it gets no
+        # advice about reaching one. Otherwise the device this action exists for is the one that is
+        # hardest to connect to, so a failure here is expected often enough that saying only
+        # "failed" would send someone to the device.
         out["error"] = blethr.wake_failure_note(out.get("error"))
     return out

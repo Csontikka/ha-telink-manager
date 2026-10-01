@@ -172,7 +172,12 @@ def stale_threshold_s(measure_period_s: float | None) -> float | None:
 
 
 def unreachable_note(
-    error: str | None, *, rssi: int | None = None, source: str | None = None, connectable: bool = False
+    error: str | None,
+    *,
+    rssi: int | None = None,
+    source: str | None = None,
+    connectable: bool = False,
+    reached: bool = False,
 ) -> str:
     """Why a connection failed, told apart into the three cases that need different actions.
 
@@ -188,6 +193,12 @@ def unreachable_note(
     10.24 s and is hard to catch for a reason that does not apply to anything else.
     """
     err = (error or "").strip() or "no connection"
+    if reached:
+        # The connection was made and the failure came after it, so none of the range advice applies.
+        return (
+            err + ": the device was connected and answering, but stopped before the work was done. "
+            "That is not a range problem, and trying again is the right next step."
+        )
     if rssi is None:
         return (
             err + ": nothing has heard this device recently, so there was nothing to connect to. "

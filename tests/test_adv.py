@@ -182,6 +182,14 @@ def test_a_device_in_range_that_will_not_complete_a_connection_is_called_distanc
     assert "not a retry" in note
 
 
+def test_a_failure_after_connecting_gets_no_range_advice():
+    """The device answered, so blaming distance or a proxy would send someone the wrong way."""
+    note = adv.unreachable_note("TimeoutError()", rssi=-60, connectable=True, reached=True)
+    assert "was connected" in note
+    assert "proxy" not in note
+    assert "dBm" not in note
+
+
 def test_the_note_never_comes_back_empty_handed():
     note = adv.unreachable_note(None, rssi=None)
     assert note.startswith("no connection")

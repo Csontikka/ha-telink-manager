@@ -20,6 +20,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 
 - **Scan / Refresh** — discover every PVVX/ATC thermometer your proxies can see, with live RSSI, connectable state and battery level (parsed from the advertisement).
 - **Friendly names** — assign and persist a human name per device (stored in HA, independent of the device's own BLE name).
+- **Area column** — the Home Assistant area (room) each thermometer's device is in, sortable, so one sensor per room is easy to tell apart.
 - **Connect & read** — pull the full configuration blob plus device name, comfort thresholds, sensor calibration and bind key.
 - **Hardware detection** — the board revision and its temperature/humidity sensor chip (e.g. `LYWSD03MMC B1.6 · SHT4x`, `TS0201 Wing · SHT30`) are decoded from the configuration and shown in the device view and the Compare matrix. Both board families are recognised: the classic Xiaomi and Qingping revisions, and the newer boards — mostly Tuya devices converted from Zigbee — which report themselves through a different id range.
 - **Write (safe settings)** — device name, comfort zones, RTC clock, LCD/display options, advertising interval, sensor calibration (and reset to factory calibration).
