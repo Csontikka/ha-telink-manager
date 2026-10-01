@@ -15,6 +15,7 @@ import time
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 
 from . import adv, backups, blethr, pvvx_struct
@@ -174,7 +175,7 @@ def async_coverage(hass: HomeAssistant) -> dict:
                     "mac": addr,
                     "name": _clean_adv_name(getattr(dev, "name", None), addr) or ble_names.get(addr, ""),
                     "friend_name": names.get(addr, ""),
-                    "ha_name": _ha_name(hass, addr),
+                    "ha_name": _ha_device(hass, addr)[0],
                     "rssi": {},
                 }
             d["rssi"][source] = rssi
@@ -284,9 +285,10 @@ def _source_interval_check(hass: HomeAssistant, fields: dict) -> dict:
     return out
 
 
-def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
-    """The user's own Home Assistant name for this thermometer (the device's name_by_user), matched
-    by BLE MAC. None if there is no device or the user never set a name. Read-only, no BLE.
+def _ha_device(hass: HomeAssistant, mac: str) -> tuple[str | None, str | None]:
+    """The user's own Home Assistant name and area for this thermometer, matched by BLE MAC.
+
+    Either is None when there is no device entry or the user never set it. Read-only, no BLE.
 
     ponytail: the scan only feeds Telink-OUI (A4:C1:38) MACs, so the matched device IS this
     thermometer — no extra device-type guard needed. Match both MAC cases: integrations store the
@@ -298,22 +300,31 @@ def _ha_name(hass: HomeAssistant, mac: str) -> str | None:
     actually carries a user-given name instead of whichever one comes back first. It does not exist
     on the older cores this integration still supports, so those keep to the single-device lookup
     that is only deprecated on newer ones.
+
+    The area follows the same choice: the named entry's area when it has one, since that is the
+    entry the user has been looking after, otherwise the first entry that was put in a room at all.
     """
     wanted = {(dr.CONNECTION_BLUETOOTH, mac), (dr.CONNECTION_BLUETOOTH, dr.format_mac(mac))}
     try:
         registry = dr.async_get(hass)
         get_all = getattr(registry, "async_get_devices", None)
         if get_all is not None:
-            devices = get_all(connections=wanted)
+            devices = list(get_all(connections=wanted))
         else:
             device = registry.async_get_device(connections=wanted)
             devices = [device] if device else []
     except Exception:  # noqa: BLE001
-        return None
-    for device in devices:
-        if device.name_by_user:
-            return device.name_by_user
-    return None
+        return None, None
+    named = next((d for d in devices if d.name_by_user), None)
+    placed = named if named is not None and named.area_id else next((d for d in devices if d.area_id), None)
+    area = None
+    if placed is not None:
+        try:
+            entry = ar.async_get(hass).async_get_area(placed.area_id)
+        except Exception:  # noqa: BLE001
+            entry = None
+        area = entry.name if entry else None
+    return (named.name_by_user if named else None), area
 
 
 def _clean_adv_name(raw: str | None, addr: str) -> str:
@@ -372,6 +383,7 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
         # never asks for, so the advertised name can still be the one it carried before it was
         # reflashed. Prefer the name we read from the device itself when we have one.
         adv_name = _clean_adv_name(si.name, addr)
+        ha_name, ha_area = _ha_device(hass, addr)
         if repeater:
             adv_name = ble_names.get(addr) or adv_name
             # The percentage in a repeater's advertisement is its source's, not its own.
@@ -386,7 +398,8 @@ async def async_scan(hass: HomeAssistant) -> list[dict]:
                 # Assistant keeps whatever name it knew before the device was reflashed, so the name
                 # says nothing. What does survive is our own last snapshot of it.
                 "blethr": repeater,
-                "ha_name": _ha_name(hass, addr),  # the user's HA device name (name_by_user), if any
+                "ha_name": ha_name,  # the user's HA device name (name_by_user), if any
+                "ha_area": ha_area,  # the HA area (room) the device is in, if any
                 # RSSI that matters for CONNECTING: the connectable proxy's signal when the device
                 # is reachable, else the advertisement signal. This keeps RSSI consistent with the
                 # Route (both describe the connectable path), so the weak-signal warning reflects the
