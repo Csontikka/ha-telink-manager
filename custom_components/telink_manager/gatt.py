@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 
-from . import adv, backups, blethr, pvvx_struct
+from . import adv, backups, blethr, encryption, pvvx_struct
 from .const import (
     CFG_CHAR,
     CMD_BIND_KEY,
@@ -1171,6 +1171,105 @@ async def async_set_bind_key(hass: HomeAssistant, mac: str, key_hex: str) -> dic
     return await _with_client(hass, mac, fn)
 
 
+async def async_set_encryption(hass: HomeAssistant, mac: str, enable: bool, key_hex: str | None = None) -> dict:
+    """Turn encrypted advertising on or off, then bring Home Assistant's BTHome entry along.
+
+    One connection: key (0x18) first, then the flag in the config (0x55), then a full read-back
+    that both verifies and gives the caller a snapshot. Enabling uses `key_hex`, else the key the
+    device already encrypts with, else a new random one. Disabling leaves the key on the device.
+
+    The device is changed before HA, so nothing in HA moves unless the device took the change. HA
+    follows within seconds: until then BTHome asks for a key (enable) or drops the plaintext (disable).
+    The BTHome entry is only touched when the device advertises BTHome; otherwise the caller gets the
+    key and the reason it was not applied.
+
+    Anything that goes wrong after the first write (lost link, no echo for the key, a read-back that fails or
+    disagrees) leaves the device in an unknown state, so it is not retried and HA is not touched: the result
+    says `maybe_changed` and carries the key, and running the same call again resyncs (an encrypting device
+    keeps its key).
+    """
+    mac = mac.upper()
+    try:
+        want_key = encryption.parse_bindkey(key_hex) if key_hex else None
+    except ValueError as e:
+        return {"ok": False, "mac": mac, "error": f"validation: {e}"}
+
+    async def fn(client):
+        if blethr.detect(client):
+            return {"ok": False, "mac": mac, "error": "this is a repeater, not a thermometer"}
+        raw = await _read_raw(client)
+        fw, current = raw[1], raw[2:13]
+        was = pvvx_struct.parse(current, fw)
+        try:
+            target = pvvx_struct.with_adv_crypto(current, enable, fw)
+        except ValueError as ve:
+            return {"ok": False, "mac": mac, "error": f"validation: {ve}"}
+        key = None
+        touched = False  # set once something is sent: from then on the device may not match what we read
+
+        def unsure(why: str) -> dict:
+            """Something was written but cannot be confirmed: never a plain failure, and the key goes with it."""
+            res = {"ok": False, "mac": mac, "enabled": enable, "maybe_changed": True}
+            res["error"] = (
+                f"{why}, so the device may already be {'encrypting' if enable else 'plain'} and Home Assistant"
+                f" was not updated. Run {'Enable' if enable else 'Disable'} again to finish."
+            )
+            if key is not None:
+                res["bind_key"] = key.hex()
+            return res
+
+        try:
+            if enable:
+                key = want_key
+                if key is None and was["adv_crypto"]:
+                    stored = _decode_bind_key(await _cmd(client, CMD_BIND_KEY))
+                    key = bytes.fromhex(stored) if stored else None
+                key = key or encryption.new_bindkey()
+                touched = True
+                if _decode_bind_key(await _cmd(client, CMD_BIND_KEY, key)) != key.hex():
+                    # Some firmwares do not echo the key, so a missing echo is not proof it was refused.
+                    return unsure("the device did not confirm the bind key")
+            if target != current:
+                touched = True
+                await asyncio.wait_for(
+                    client.write_gatt_char(CFG_CHAR, bytes([CMD_CFG]) + target, response=False), timeout=6
+                )
+                await asyncio.sleep(1.5)
+            after = await _read_all_fields(client)
+        except Exception as e:  # noqa: BLE001
+            if not touched:
+                raise
+            _LOGGER.warning("Encryption change on %s did not finish: %s", mac, type(e).__name__)
+            return unsure("the connection failed partway")
+        ok = after.get("adv_crypto") is enable and (not enable or after.get("bind_key") == key.hex())
+        if not ok and touched:
+            # a failed 0x18 read-back (bind_key None) lands here too: the write may well have worked
+            return unsure("the device did not confirm the encryption setting on read-back")
+        out = {
+            "ok": ok,
+            "mac": mac,
+            "enabled": enable,
+            "adv_type": was["adv_type"],
+            "adv_type_raw": was["adv_type_raw"],
+            "fields": after,
+        }
+        if enable:
+            out["bind_key"] = key.hex()
+        if not ok:
+            out["error"] = "the device did not keep the encryption setting"
+        return out
+
+    out = await _with_client(hass, mac, fn)
+    if out.get("ok"):
+        if out["adv_type_raw"] != encryption.ADV_TYPE_BTHOME:
+            out["ha"] = "not_bthome"
+        else:
+            out["ha"] = await encryption.async_sync_bthome(
+                hass, mac, bytes.fromhex(out["bind_key"]) if enable else None
+            )
+    return out
+
+
 async def async_factory_reset(hass: HomeAssistant, mac: str) -> dict:
     """Reset ALL configuration to firmware defaults (command 0x56).
 
@@ -1253,6 +1352,10 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
     config, ext_mac, ext_bind_key for a repeater. The MAC is never restored/cloned. Each part is
     written then verified; per-part ok flags are returned.
 
+    A restore or clone leaves the target's encryption flag as it is (set_encryption changes it): an older
+    snapshot predates the flag, and flipping it without updating Home Assistant's BTHome entry silences
+    the device. A clone also refuses the bind key, since each device needs its own.
+
     A snapshot is only ever written back onto the same kind of device it came from. The two kinds
     store different things under the same keys — an 11-byte thermometer config against an 8-byte
     repeater one — so crossing them would push meaningless bytes into a working device.
@@ -1261,9 +1364,20 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
     raw_hex = snapshot.get("raw")
     comfort = snapshot.get("comfort") or {}
     sensor = snapshot.get("sensor") or {}
+    clone = (snapshot.get("mac") or "").upper() != mac
     snap_kind = backups.kind_of(snapshot)
     if snap_kind == backups.KIND_REPEATER:
         return await _restore_repeater(hass, mac, snapshot, parts)
+
+    config_blob = None
+    if "config" in parts and raw_hex:
+        # checked here so a bad snapshot is a plain refusal, not an error the retry wrapper would repeat
+        try:
+            config_blob = bytes.fromhex(raw_hex)[:11]
+        except ValueError:
+            config_blob = b""
+        if len(config_blob) < 11:
+            return {"ok": False, "mac": mac, "error": "validation: the snapshot's config is too short to restore"}
 
     async def fn(client):
         out: dict = {}
@@ -1282,8 +1396,11 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
         except Exception:  # noqa: BLE001
             before_fields = None
 
-        if "config" in parts and raw_hex:
-            blob = bytes.fromhex(raw_hex)[:11]
+        if config_blob is not None and (before_fields is None or "adv_crypto" not in before_fields):
+            out["config"] = False  # the target's own encryption flag is unknown, so do not risk flipping it
+        elif config_blob is not None:
+            # the flag stays the target's own (from the read above, not a second read)
+            blob = pvvx_struct.with_adv_crypto(config_blob, before_fields["adv_crypto"])
             await asyncio.wait_for(client.write_gatt_char(CFG_CHAR, bytes([CMD_CFG]) + blob, response=False), timeout=6)
             await asyncio.sleep(1.5)
             after = await _read_blob(client)
@@ -1308,7 +1425,9 @@ async def async_restore(hass: HomeAssistant, target_mac: str, snapshot: dict, pa
             raw = await _cmd(client, CMD_COMFORT, payload)
             out["comfort"] = len(raw) >= 9 and raw[0] == CMD_COMFORT
 
-        if "bind_key" in parts and snapshot.get("bind_key"):
+        if "bind_key" in parts and clone:
+            out["bind_key"] = False  # one key per device
+        elif "bind_key" in parts and snapshot.get("bind_key"):
             try:
                 key = bytes.fromhex(snapshot["bind_key"])
             except ValueError:
