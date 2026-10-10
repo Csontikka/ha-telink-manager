@@ -1389,6 +1389,7 @@ class TelinkManagerPanel extends HTMLElement {
 
     // Save is enabled only when something actually changed vs. the loaded baseline.
     const refreshSave = () => {
+      if (!this.querySelector("#adv_s")) return;   // another view owns #m-body
       const { changes, diff } = this._collectChanges();
       const s = this.querySelector("#m-save");
       if (s) s.disabled = diff.length === 0;
@@ -1400,6 +1401,12 @@ class TelinkManagerPanel extends HTMLElement {
       }
     };
     const body = this.querySelector("#m-body");
+    // #m-body outlives this view; drop the old handler so reopening doesn't stack listeners.
+    if (this._refreshSaveHandler) {
+      body.removeEventListener("input", this._refreshSaveHandler);
+      body.removeEventListener("change", this._refreshSaveHandler);
+    }
+    this._refreshSaveHandler = refreshSave;
     body.addEventListener("input", refreshSave);
     body.addEventListener("change", refreshSave);
 
