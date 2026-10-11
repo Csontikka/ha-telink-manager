@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import secrets
 
+from homeassistant.components import bluetooth
 from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
@@ -14,6 +15,9 @@ _LOGGER = logging.getLogger(__name__)
 BTHOME_DOMAIN = "bthome"
 CONF_BINDKEY = "bindkey"  # the key core BTHome keeps the hex bind key under in its entry data
 ADV_TYPE_BTHOME = 3  # adv_type_raw of the BTHome format
+BTHOME_V2_UUID = "0000fcd2-0000-1000-8000-00805f9b34fb"
+BTHOME_ENCRYPTED_BIT = 0x01  # bit 0 of the first service-data byte
+PLAIN_ADVERT_TIMEOUT_S = 15  # covers the advertising interval plus a proxy's batching delay
 
 
 def new_bindkey() -> bytes:
@@ -39,6 +43,32 @@ def bthome_entry(hass: HomeAssistant, mac: str) -> ConfigEntry | None:
     return None
 
 
+def _is_encrypted(info: bluetooth.BluetoothServiceInfoBleak) -> bool:
+    data = info.service_data.get(BTHOME_V2_UUID)
+    return bool(data) and bool(data[0] & BTHOME_ENCRYPTED_BIT)
+
+
+async def _async_wait_for_plain_advert(hass: HomeAssistant, mac: str) -> None:
+    """Return once the newest advert Home Assistant holds for the device is not encrypted.
+
+    Reloading the entry replays that advert into the fresh BTHome coordinator. If it is still an
+    encrypted one and the key is gone, BTHome starts a reauth flow that would stay open.
+    """
+    last = bluetooth.async_last_service_info(hass, mac, connectable=False)
+    if last is None or not _is_encrypted(last):
+        return
+    try:
+        await bluetooth.async_process_advertisements(
+            hass,
+            lambda info: not _is_encrypted(info),
+            {"address": mac.upper(), "connectable": False},
+            bluetooth.BluetoothScanningMode.PASSIVE,
+            PLAIN_ADVERT_TIMEOUT_S,
+        )
+    except TimeoutError:
+        _LOGGER.debug("No plaintext advert from %s yet; reloading its BTHome entry anyway", mac)
+
+
 async def async_sync_bthome(hass: HomeAssistant, mac: str, key: bytes | None) -> str:
     """Set (or, with key=None, remove) the bind key on this device's BTHome entry and reload it.
 
@@ -61,6 +91,8 @@ async def async_sync_bthome(hass: HomeAssistant, mac: str, key: bytes | None) ->
             # decrypted data, so it would stay behind after we drop the key.
             ir.async_delete_issue(hass, BTHOME_DOMAIN, f"encryption_removed_{entry.entry_id}")
         if entry.disabled_by is None:
+            if key is None:
+                await _async_wait_for_plain_advert(hass, mac)
             await hass.config_entries.async_reload(entry.entry_id)
     except Exception:  # noqa: BLE001
         _LOGGER.warning("Could not update the BTHome entry for %s", mac, exc_info=True)

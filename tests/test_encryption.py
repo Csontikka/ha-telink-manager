@@ -83,6 +83,26 @@ def _hass(*entries, fail=False):
     return SimpleNamespace(config_entries=_ConfigEntries(list(entries), fail=fail), data={})
 
 
+def _advert(encrypted):
+    return SimpleNamespace(service_data={encryption.BTHOME_V2_UUID: bytes([0x41 if encrypted else 0x40, 0x00])})
+
+
+@pytest.fixture(autouse=True)
+def last_advert(monkeypatch):
+    """The newest advert Home Assistant holds for the device; none unless a test sets `.info`."""
+    state = SimpleNamespace(info=None, waits=[], timeout=False, reloaded_at_wait=None)
+
+    async def process(hass, callback, match, mode, timeout):
+        state.waits.append((match, callback(_advert(True)), callback(_advert(False))))
+        state.reloaded_at_wait = list(hass.config_entries.reloaded)
+        if state.timeout:
+            raise TimeoutError
+
+    monkeypatch.setattr(encryption.bluetooth, "async_last_service_info", lambda hass, mac, connectable=True: state.info)
+    monkeypatch.setattr(encryption.bluetooth, "async_process_advertisements", process)
+    return state
+
+
 def test_entry_is_matched_by_mac_in_either_case():
     entry = _entry(MAC)
     assert encryption.bthome_entry(_hass(entry), MAC.lower()) is entry
@@ -111,6 +131,40 @@ async def test_sync_without_a_key_removes_it_and_clears_the_downgrade_issue(issu
     assert entry.data == {"sleepy_device": False}
     assert hass.config_entries.reloaded == ["entry1"]
     assert issues == ["encryption_removed_entry1"]
+
+
+async def test_removing_the_key_waits_for_a_plain_advert_before_reloading(issues, last_advert):
+    # A reload replays the newest advert; an encrypted one with the key gone would open a reauth flow.
+    last_advert.info = _advert(encrypted=True)
+    hass = _hass(_entry(data={"bindkey": KEY.hex()}))
+    assert await encryption.async_sync_bthome(hass, MAC, None) == "updated"
+    assert last_advert.waits == [({"address": MAC, "connectable": False}, False, True)]
+    assert last_advert.reloaded_at_wait == []
+    assert hass.config_entries.reloaded == ["entry1"]
+
+
+async def test_removing_the_key_still_reloads_when_no_plain_advert_arrives(issues, last_advert):
+    last_advert.info = _advert(encrypted=True)
+    last_advert.timeout = True
+    hass = _hass(_entry(data={"bindkey": KEY.hex()}))
+    assert await encryption.async_sync_bthome(hass, MAC, None) == "updated"
+    assert hass.config_entries.reloaded == ["entry1"]
+
+
+@pytest.mark.parametrize("info", [None, _advert(encrypted=False), SimpleNamespace(service_data={})])
+async def test_removing_the_key_does_not_wait_when_the_newest_advert_is_not_encrypted(issues, last_advert, info):
+    last_advert.info = info
+    hass = _hass(_entry(data={"bindkey": KEY.hex()}))
+    assert await encryption.async_sync_bthome(hass, MAC, None) == "updated"
+    assert last_advert.waits == []
+    assert hass.config_entries.reloaded == ["entry1"]
+
+
+async def test_setting_a_key_never_waits_for_an_advert(last_advert):
+    last_advert.info = _advert(encrypted=True)
+    hass = _hass(_entry())
+    assert await encryption.async_sync_bthome(hass, MAC, KEY) == "updated"
+    assert last_advert.waits == []
 
 
 async def test_sync_reports_no_entry():
