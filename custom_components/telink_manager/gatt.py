@@ -841,14 +841,31 @@ def _unreachable(hass: HomeAssistant, mac: str, last_err: str, reached: bool = F
     """
     if reached:
         return adv.unreachable_note(last_err, reached=True)
-    si = bluetooth.async_last_service_info(hass, mac, connectable=False)
-    dev = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
-    return adv.unreachable_note(
-        last_err,
-        rssi=getattr(si, "rssi", None),
-        source=getattr(si, "source", None),
-        connectable=dev is not None,
-    )
+    connectable = bluetooth.async_ble_device_from_address(hass, mac, connectable=True) is not None
+    # When something can connect, name that proxy and its signal: the connection was attempted
+    # through it. The strongest listener overall is often a passive one that never tried.
+    rssi, source = _strongest_listener(hass, mac, connectable)
+    if rssi is None:
+        si = bluetooth.async_last_service_info(hass, mac, connectable=False)
+        rssi, source = getattr(si, "rssi", None), getattr(si, "source", None)
+    return adv.unreachable_note(last_err, rssi=rssi, source=source, connectable=connectable)
+
+
+def _strongest_listener(hass: HomeAssistant, mac: str, connectable: bool) -> tuple[int | None, str | None]:
+    """RSSI and name of the scanner hearing `mac` best, among the connectable ones if asked."""
+    best: tuple[int | None, str | None] = (None, None)
+    try:
+        seen = bluetooth.async_scanner_devices_by_address(hass, mac, connectable=connectable)
+    except Exception:  # noqa: BLE001
+        return best
+    for sd in seen:
+        scanner = getattr(sd, "scanner", None)
+        if connectable and not getattr(scanner, "connectable", False):
+            continue
+        rssi = getattr(getattr(sd, "advertisement", None), "rssi", None)
+        if rssi is not None and (best[0] is None or rssi > best[0]):
+            best = (rssi, getattr(scanner, "name", None) or getattr(scanner, "source", None))
+    return best
 
 
 async def _with_client_locked(hass: HomeAssistant, mac: str, fn, retries: int) -> dict:
