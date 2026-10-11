@@ -2179,11 +2179,12 @@ class TelinkManagerPanel extends HTMLElement {
     const rows = devs.map((d) => {
       const disabled = !d.connectable;
       const name = this._names[d.mac] || this._ha(d.mac) || d.name || d.mac;
+      const sig = this._signalOf(d.rssi);
       return `<tr style="${disabled ? "opacity:.5" : ""}">
         <td style="text-align:center"><input type="checkbox" class="en-pick" data-mac="${d.mac}" ${sel.has(d.mac) ? "checked" : ""} ${disabled ? "disabled" : ""}></td>
         <td style="text-align:left;white-space:nowrap">${escHtml(name)}</td>
         <td style="white-space:nowrap">${this._rssiCell(d.rssi)}</td>
-        <td style="text-align:left;font-size:12px">${disabled ? "not connectable" : ""}</td>
+        <td style="text-align:left;color:${disabled ? "var(--tm-text-2,#9aa0a6)" : sig.color};font-size:12px;white-space:nowrap">${disabled ? "not connectable" : sig.lab}</td>
       </tr>`;
     }).join("");
     this.querySelector("#m-body").innerHTML = `
