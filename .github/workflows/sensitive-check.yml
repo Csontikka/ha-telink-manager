@@ -19,7 +19,10 @@ jobs:
         id: changed
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+            # A pull_request run checks out the merge commit, and only that commit and its parents are
+            # fetched, so origin/<base> does not exist here. The first parent is the base branch, so
+            # diffing against it gives exactly what the PR changes, fork or not.
+            FILES=$(git diff --name-only HEAD^1 HEAD)
           else
             FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git ls-files)
           fi
