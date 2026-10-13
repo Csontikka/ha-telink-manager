@@ -182,6 +182,50 @@ def test_build_more_validation_errors(changes):
         pvvx_struct.build(MODERN, changes, fw=fw)
 
 
+# --- encrypted advertising flag (flg2 bit3) ----------------------------------------------------
+
+
+def test_with_adv_crypto_sets_and_clears_only_that_bit():
+    on = pvvx_struct.with_adv_crypto(MODERN, True, fw=FW_MODERN)
+    assert on[1] == 0x08
+    assert on[0] == MODERN[0] and on[2:] == MODERN[2:]
+    assert pvvx_struct.parse(on, fw=FW_MODERN)["adv_crypto"] is True
+    off = pvvx_struct.with_adv_crypto(on, False, fw=FW_MODERN)
+    assert off == MODERN
+    assert pvvx_struct.parse(off, fw=FW_MODERN)["adv_crypto"] is False
+
+
+def test_with_adv_crypto_keeps_the_neighbouring_flg2_bits():
+    blob = bytearray(MODERN)
+    blob[1] = 0xF7  # every flg2 bit but adv_crypto
+    assert pvvx_struct.with_adv_crypto(bytes(blob), True)[1] == 0xFF
+    blob[1] = 0xFF
+    assert pvvx_struct.with_adv_crypto(bytes(blob), False)[1] == 0xF7
+
+
+def test_with_adv_crypto_is_idempotent():
+    on = pvvx_struct.with_adv_crypto(MODERN, True)
+    assert pvvx_struct.with_adv_crypto(on, True) == on
+    assert pvvx_struct.with_adv_crypto(MODERN, False) == MODERN
+
+
+def test_with_adv_crypto_refuses_firmware_before_the_flag_existed():
+    with pytest.raises(ValueError):
+        pvvx_struct.with_adv_crypto(MODERN, True, fw=0x19)
+    assert pvvx_struct.with_adv_crypto(MODERN, True, fw=pvvx_struct.FW_ADV_CRYPTO_MIN)[1] == 0x08
+    assert pvvx_struct.with_adv_crypto(MODERN, True, fw=0)[1] == 0x08  # unknown fw is assumed modern
+
+
+def test_with_adv_crypto_rejects_a_short_blob():
+    with pytest.raises(ValueError):
+        pvvx_struct.with_adv_crypto(b"\x00\x01", True)
+
+
+def test_build_still_ignores_adv_crypto():
+    assert pvvx_struct.build(MODERN, {"adv_crypto": True}, fw=FW_MODERN) == MODERN
+    assert "adv_crypto" not in pvvx_struct.WRITABLE
+
+
 # --- hardware id table -------------------------------------------------------------------------
 # byte[9] carries two id spaces that never overlap: the classic HW_VERSION_ID enum (0..14) for the
 # Xiaomi/Qingping boards, and the DEVICE_TYPE constant (16..) written verbatim on newer boards.

@@ -91,10 +91,15 @@ HW_VERSIONS = {
 #   FW_LEGACY_MAX..FW_MODERN_MIN: transitional — byte[2]/[3] meaning undefined (leave untouched)
 FW_LEGACY_MAX = 0x47
 FW_MODERN_MIN = 0x50
+# flg2 bit3 (adv_crypto in src/app.h) only means "encrypted advertising" from firmware 2.2: the version
+# history in the README of https://github.com/pvvx/ATC_MiThermometer lists 2.2 as "Added parameter
+# 'Encrypted Mi Beacon'". TelinkMiFlasher gates it the same way.
+FW_ADV_CRYPTO_MIN = 0x22
 
 # Fields the UI may modify in the 0x55 blob. Risk tiers are enforced in the UI, not here.
 # Deliberately NOT writable (risky / read-only): rf_tx_power(6), connect_latency(7), hw_ver(9),
-# bt5phy, longrange, adv_crypto — those are gated elsewhere or left read-only.
+# bt5phy, longrange, adv_crypto — those are gated elsewhere or left read-only. adv_crypto only changes
+# through with_adv_crypto(), because the flag is only safe together with a bind key.
 WRITABLE = {
     "adv_interval_raw",
     "measure_interval",
@@ -297,4 +302,18 @@ def build(base_blob: bytes, changes: dict, fw: int = 0) -> bytes:
             raise ValueError("averaging must be 0..255")
         b[10] = v
 
+    return bytes(b)
+
+
+def with_adv_crypto(blob: bytes, enabled: bool, fw: int = 0) -> bytes:
+    """Return `blob` with the encrypted-advertising flag set or cleared and every other bit untouched."""
+    if len(blob) < 11:
+        raise ValueError(f"base blob too short ({len(blob)} B)")
+    if fw and fw < FW_ADV_CRYPTO_MIN:
+        raise ValueError(f"firmware 0x{fw:02X} has no encrypted advertising (needs >= 0x{FW_ADV_CRYPTO_MIN:02X})")
+    b = bytearray(blob)
+    if enabled:
+        b[1] |= 0x08
+    else:
+        b[1] &= ~0x08 & 0xFF
     return bytes(b)

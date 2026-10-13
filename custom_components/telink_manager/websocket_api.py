@@ -241,6 +241,28 @@ async def ws_set_bind_key(hass: HomeAssistant, connection, msg):
 
 
 @websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "telink_manager/set_encryption",
+        vol.Required("mac"): str,
+        vol.Required("enable"): bool,
+        vol.Optional("key"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_set_encryption(hass: HomeAssistant, connection, msg):
+    """Turn encrypted advertising on/off (bind key + flag), and update the BTHome entry in HA."""
+    result = await gatt.async_set_encryption(hass, msg["mac"], msg["enable"], msg.get("key"))
+    if result.get("ok"):
+        try:  # snapshot the new state: it now holds the bind key
+            snap = backups.snapshot_from_fields(hass, msg["mac"], result["fields"])
+            result["backup"] = await backups.async_save(hass, snap)
+        except Exception:  # noqa: BLE001
+            pass
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/factory_reset", vol.Required("mac"): str})
 @websocket_api.async_response
 async def ws_factory_reset(hass: HomeAssistant, connection, msg):
@@ -395,6 +417,19 @@ def ws_read_all(hass: HomeAssistant, connection, msg):
 
 
 @websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "telink_manager/encrypt_all",
+        vol.Required("entries"): [{vol.Required("mac"): str, vol.Optional("proxy"): vol.Any(str, None)}],
+        vol.Required("enable"): bool,
+    }
+)
+@callback
+def ws_encrypt_all(hass: HomeAssistant, connection, msg):
+    connection.send_result(msg["id"], bulk.start(hass, msg["entries"], "encrypt", msg["enable"]))
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "telink_manager/bulk_status"})
 @callback
 def ws_bulk_status(hass: HomeAssistant, connection, msg):
@@ -484,6 +519,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_mac)
     websocket_api.async_register_command(hass, ws_get_bind_key)
     websocket_api.async_register_command(hass, ws_set_bind_key)
+    websocket_api.async_register_command(hass, ws_set_encryption)
     websocket_api.async_register_command(hass, ws_factory_reset)
     websocket_api.async_register_command(hass, ws_reboot)
     websocket_api.async_register_command(hass, ws_backup_save)
@@ -494,6 +530,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_backup_delete)
     websocket_api.async_register_command(hass, ws_restore)
     websocket_api.async_register_command(hass, ws_read_all)
+    websocket_api.async_register_command(hass, ws_encrypt_all)
     websocket_api.async_register_command(hass, ws_bulk_status)
     websocket_api.async_register_command(hass, ws_bulk_cancel)
     websocket_api.async_register_command(hass, ws_bulk_dismiss)

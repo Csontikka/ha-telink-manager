@@ -64,7 +64,7 @@ const TIPS = {
   adv_type: "Advertising format. HA's bluetooth/BTHome integration expects BTHome. Changing this to atc1441/pvvx/mi_like will make HA STOP seeing the sensor until you change it back via this tool.",
   tx_power: "Radio transmit power (firmware enum). Higher = better range, more battery use. Read-only here.",
   bt5phy: "Bluetooth 5 PHY / Long Range (Coded PHY) advertising. Read-only here.",
-  adv_crypto: "Advertisements are encrypted. HA cannot decode encrypted pvvx/BTHome without the bind key. Read-only here.",
+  adv_crypto: "Advertisements are encrypted with the bind key; Home Assistant cannot decode them without it. Change it under Commands, Encrypted advertising.",
   raw: "Raw 11-byte configuration block (hex) as read back from the device.",
   firmware: "Firmware version reported by the device (Device Information Service; fallback: the version byte from the 0x55 response).",
   model: "Model number string reported by the device (Device Information Service).",
@@ -320,6 +320,7 @@ class TelinkManagerPanel extends HTMLElement {
             <button id="read" class="act" disabled>🔌 Connect</button>
             <button id="cancel" class="cancel" style="display:none">Cancel</button>
             <button id="readall-btn" class="act" title="Connect to many devices in one go and snapshot them (parallel by proxy)">📖 Read all</button>
+            <button id="enc-btn" class="act" title="Turn encrypted advertising on or off for many devices in one go">🔐 Encryption</button>
             <button id="scan" class="act" title="Re-scan for devices in range">🔄 Refresh</button>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
@@ -340,6 +341,7 @@ class TelinkManagerPanel extends HTMLElement {
     this.querySelector("#compare-btn").onclick = () => this._openCompareModal();
     this.querySelector("#coverage-btn").onclick = () => this._openCoverageModal();
     this.querySelector("#readall-btn").onclick = () => this._openReadAllDialog();
+    this.querySelector("#enc-btn").onclick = () => this._openEncryptDialog();
     this._maybeAutoScan();
     // Re-attach to a "Read all" that is still running (or just finished) on the BACKEND, so its
     // progress strip / result reappear after navigating away and back (or after an F5).
@@ -405,7 +407,7 @@ class TelinkManagerPanel extends HTMLElement {
     this._status(label);
     this.querySelector("#scan").disabled = true;
     this.querySelector("#read").disabled = true;
-    const ra = this.querySelector("#readall-btn"); if (ra) ra.disabled = true;
+    this.querySelectorAll("#readall-btn, #enc-btn").forEach((b) => { b.disabled = true; });
     const c = this.querySelector("#cancel"); c.style.display = topCancel ? "inline-block" : "none"; c.disabled = false;
     this.querySelectorAll("tr.dev").forEach(tr => tr.classList.add("busy"));
     return token;
@@ -414,7 +416,7 @@ class TelinkManagerPanel extends HTMLElement {
     this._busy = false;
     this.querySelector("#scan").disabled = false;
     this.querySelector("#read").disabled = this._readDisabled();
-    const ra = this.querySelector("#readall-btn"); if (ra) ra.disabled = this._bulkActiveNow();
+    this.querySelectorAll("#readall-btn, #enc-btn").forEach((b) => { b.disabled = this._bulkActiveNow(); });
     this.querySelector("#cancel").style.display = "none";
     this.querySelectorAll("tr.dev").forEach(tr => tr.classList.remove("busy"));
   }
@@ -1480,6 +1482,14 @@ class TelinkManagerPanel extends HTMLElement {
       <div class="fld"><button id="c-lcd">Show on LCD</button>
         <button id="c-lcd-clear" class="ghost">Clear</button></div>
 
+      <h3>Encrypted advertising</h3>
+      <div class="muted">Encrypts what this thermometer broadcasts, with a bind key of its own. If it advertises BTHome and Home Assistant has a BTHome entry for it, that entry gets the key automatically. Anything else that reads it needs the key too.</div>
+      <div class="fld"><span class="lab"${t("adv_crypto")}>Encrypted beacon</span><b id="enc-state">${f.adv_crypto ? "on" : "off"}</b></div>
+      <div class="fld"><span class="lab">Bind key (blank = random)</span>
+        <input type="text" id="enc-key" maxlength="32" placeholder="32 hex chars" style="width:280px"></div>
+      <div class="fld"><button id="c-enc-on">Enable encryption</button>
+        <button id="c-enc-off" class="ghost">Disable encryption</button></div>
+
       <h3>Power</h3>
       <div class="fld"><span class="lab">Reboot the device</span>
         <button id="c-reboot" class="ghost">Reboot</button></div>
@@ -1670,6 +1680,27 @@ class TelinkManagerPanel extends HTMLElement {
         (r) => r.verified ? "✅ Bind key set and verified." : "✅ Bind key command accepted.");
       if (r && r.ok) { this._loaded.bind_key = (r.bind_key || key).toLowerCase(); this._autoBackup(mac); }
     };
+    const setEncryption = async (enable) => {
+      const key = enable ? (this.querySelector("#enc-key").value || "").trim() : "";
+      const warn = enable
+        ? "Enable encrypted advertising?\n\nAnything that reads this device and does not have its bind key stops decoding it. Home Assistant's BTHome entry is updated for you when there is one."
+        : "Disable encrypted advertising?\n\nThe device goes back to plain advertising and the key is removed from Home Assistant's BTHome entry.";
+      if (!(await this._confirm(warn, { okText: enable ? "Enable" : "Disable", danger: enable }))) return;
+      const msg = { type: "telink_manager/set_encryption", mac, enable };
+      if (key) msg.key = key;
+      const r = await this._runCmd(enable ? "Enabling encryption…" : "Disabling encryption…", msg, (r) => this._encryptionNote(r));
+      if (r && r.ok) {
+        Object.assign(this._loaded, r.fields);
+        this.querySelector("#enc-state").textContent = r.enabled ? "on" : "off";
+        if (r.bind_key) this.querySelector("#enc-key").value = r.bind_key;
+        if (r.backup && typeof r.backup.count === "number") { this._backupMacs.set(mac, r.backup.count); this._renderDevTable(); }
+      } else if (r && r.maybe_changed) {
+        if (r.bind_key) this.querySelector("#enc-key").value = r.bind_key;
+        this._mstatus(`❌ ${r.error}${r.bind_key ? ` The key is ${r.bind_key} (also in the field above).` : ""}`);
+      }
+    };
+    this.querySelector("#c-enc-on").onclick = () => setEncryption(true);
+    this.querySelector("#c-enc-off").onclick = () => setEncryption(false);
     this.querySelector("#c-reboot").onclick = async () => {
       if (!(await this._confirm(
         "Reboot this device now?\n\nIt restarts and comes back in a few seconds; advertising pauses briefly. Settings are kept.",
@@ -2035,21 +2066,22 @@ class TelinkManagerPanel extends HTMLElement {
     });
     this.querySelector("#ra-cancel").onclick = () => this._closeModal();
     const start = this.querySelector("#ra-start");
-    if (start) start.onclick = () => { const macs = [...this._raSel]; this._closeModal(); this._startReadAll(macs); };
+    if (start) start.onclick = () => { const macs = [...this._raSel]; void this._closeModal(); void this._startBulk(macs); };
   }
 
   _bulkActiveNow() { return !!(this._bulkStatus && this._bulkStatus.active); }
 
   // The job runs on the BACKEND (survives F5 / navigation / tab close). The panel only starts it
   // and polls its status — so any panel instance, even a freshly created one, sees the live progress.
-  async _startReadAll(macs) {
+  async _startBulk(macs, encrypt) {
     if (!macs.length) return;
     const entries = macs.map((mac) => ({ mac, proxy: ((this._devs || []).find((d) => d.mac === mac) || {}).proxy || "" }));
     this._bulkResultShown = false;
     try {
-      await this._ws({ type: "telink_manager/read_all", entries });
+      await this._ws(encrypt ? { type: "telink_manager/encrypt_all", entries, enable: encrypt.enable }
+                             : { type: "telink_manager/read_all", entries });
     } catch (e) {
-      this._status("Read all failed to start: " + this._errMsg(e));
+      this._status(`${encrypt ? "Encryption" : "Read all"} failed to start: ` + this._errMsg(e));
       return;
     }
     this._startBulkPolling();
@@ -2079,12 +2111,13 @@ class TelinkManagerPanel extends HTMLElement {
       });
       if (changed && this.querySelector("#list")) this._renderDevTable();
     }
-    const ra = this.querySelector("#readall-btn"); if (ra) ra.disabled = !!st.active || this._busy;
+    this.querySelectorAll("#readall-btn, #enc-btn").forEach((b) => { b.disabled = !!st.active || this._busy; });
     const rd = this.querySelector("#read"); if (rd) rd.disabled = !!st.active || this._readDisabled();
     // show the result once on whichever panel is live, then dismiss it server-side
     if (!st.active && st.result && !this._bulkResultShown) {
       const res = st.result;
-      this._status(`Read all ${res.cancelled ? "cancelled" : "done"}: ✓${res.ok} read, ✗${res.fail} failed.`);
+      const word = res.action === "encrypt" ? (res.enable ? "Enable encryption" : "Disable encryption") : "Read all";
+      this._status(`${word} ${res.cancelled ? "cancelled" : "done"}: ✓${res.ok} ${res.action === "encrypt" ? "changed" : "read"}, ✗${res.fail} failed.`);
       // Show the result FIRST; only mark it shown + dismiss server-side if rendering succeeded, so a
       // render error can't silently lose the result — a later poll/panel will retry showing it.
       try {
@@ -2112,7 +2145,7 @@ class TelinkManagerPanel extends HTMLElement {
     el.style.cssText = "display:block;margin-top:8px;padding:8px 12px;border:1px solid var(--tm-border);border-radius:var(--tm-radius);background:var(--tm-bg-2)";
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">
-        <span class="spinner"></span><b>Reading… ${started}/${s.total}</b>
+        <span class="spinner"></span><b>${st.action === "encrypt" ? (st.enable ? "Enabling encryption…" : "Disabling encryption…") : "Reading…"} ${started}/${s.total}</b>
         <span style="color:#4caf50">✓ ${s.ok}</span><span style="color:#e53935">✗ ${s.fail}</span>
         ${runTxt}${cancelling}
         <button id="bulk-cancel" class="ghost" style="margin-left:auto" ${st.cancel ? "disabled" : ""}>Cancel</button>
@@ -2122,7 +2155,8 @@ class TelinkManagerPanel extends HTMLElement {
   }
 
   _showReadAllResult(s, cancelled) {
-    this._modalShell("📖 Read all — results");
+    const enc = s.action === "encrypt";
+    this._modalShell(enc ? "🔐 Encrypted advertising — results" : "📖 Read all — results");
     const failRows = (s.failures || []).map((f) => {
       const d = (this._devs || []).find((x) => x.mac === f.mac) || {};
       const name = this._names[f.mac] || this._ha(f.mac) || d.name || f.mac;
@@ -2132,15 +2166,98 @@ class TelinkManagerPanel extends HTMLElement {
       return `<tr><td style="text-align:left">${escHtml(name)}</td><td>${this._rssiCell(d.rssi)}</td><td style="text-align:left;color:#ff7a7a">${escHtml(f.error)}${hint}</td></tr>`;
     }).join("");
     const hasFail = s.failures && s.failures.length;
+    const why = { not_bthome: (m) => `advertises ${m.adv_type}, not BTHome`, no_entry: () => "no BTHome entry in Home Assistant", failed: () => "updating the BTHome entry failed", maybe_changed: () => "connection failed mid-change; run again to resync" };
+    const keyRows = (s.manual || []).map((m) => {
+      const name = this._names[m.mac] || this._ha(m.mac) || m.mac;
+      return `<tr><td style="text-align:left;white-space:nowrap">${escHtml(name)}</td><td style="text-align:left;font-family:monospace;user-select:all">${escHtml(m.bind_key)}</td><td style="text-align:left">${escHtml(why[m.reason] ? why[m.reason](m) : m.reason)}</td></tr>`;
+    }).join("");
+    const keyBlock = keyRows ? `<div style="margin-top:12px"><b>Keys to enter by hand</b>
+      <div class="muted">Home Assistant was not given these keys. Enter them wherever these devices are read.</div>
+      <div style="overflow:auto;max-height:40vh"><table style="font-size:12px"><thead><tr><th style="text-align:left">Device</th><th style="text-align:left">Bind key</th><th style="text-align:left">Why</th></tr></thead><tbody>${keyRows}</tbody></table></div></div>` : "";
     this.querySelector("#m-body").innerHTML = `
-      <div style="font-size:14px;margin-bottom:8px">${cancelled ? "Cancelled. " : ""}<span style="color:#4caf50">✓ ${s.ok} read</span> · <span style="color:#e53935">✗ ${s.fail} failed</span> of ${s.total}.</div>
-      ${hasFail ? `<div style="overflow:auto;max-height:50vh"><table style="font-size:12px"><thead><tr><th style="text-align:left">Device</th><th>Signal</th><th style="text-align:left">Reason</th></tr></thead><tbody>${failRows}</tbody></table></div>` : `<div class="muted">All selected devices were read successfully. 🎉</div>`}`;
+      <div style="font-size:14px;margin-bottom:8px">${cancelled ? "Cancelled. " : ""}<span style="color:#4caf50">✓ ${s.ok} ${enc ? (s.enable ? "encrypted" : "decrypted") : "read"}</span> · <span style="color:#e53935">✗ ${s.fail} failed</span> of ${s.total}.</div>
+      ${hasFail ? `<div style="overflow:auto;max-height:50vh"><table style="font-size:12px"><thead><tr><th style="text-align:left">Device</th><th>Signal</th><th style="text-align:left">Reason</th></tr></thead><tbody>${failRows}</tbody></table></div>` : `<div class="muted">All selected devices were ${enc ? "updated" : "read successfully"}. 🎉</div>`}${keyBlock}`;
     this.querySelector("#m-actions").innerHTML = `
       ${hasFail ? `<button id="ra-retry">Retry failed (${s.failures.length})</button>` : ""}
       <button id="ra-done" class="ghost" style="margin-left:auto">Close</button>`;
     const rt = this.querySelector("#ra-retry");
-    if (rt) rt.onclick = () => { const macs = s.failures.map((f) => f.mac); this._closeModal(); this._startReadAll(macs); };
+    if (rt) rt.onclick = () => { const macs = s.failures.map((f) => f.mac); void this._closeModal(); void this._startBulk(macs, enc ? { enable: s.enable } : null); };
     this.querySelector("#ra-done").onclick = () => this._closeModal();
+  }
+
+  // Bulk encryption: the Read all job, one write per device.
+  _openEncryptDialog() {
+    if (this._bulkActiveNow()) return;
+    if (!this._devs || !this._devs.length) { this._status("Refresh first — no devices to change."); return; }
+    this._modalShell("🔐 Encrypted advertising");
+    this._enEnable = true;
+    // Unlike Read all, this breaks every other reader of a device, so each one is picked on purpose.
+    this._enSel = new Set();
+    this._renderEncryptDialog();
+  }
+
+  _renderEncryptDialog() {
+    // A repeater has no encrypted advertising of its own and the write refuses it.
+    const devs = (this._devs || []).filter((d) => !d.blethr).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+    const sel = this._enSel, on = this._enEnable;
+    const mode = (v, lab) => `<label style="cursor:pointer;margin-right:14px;font-size:13px"><input type="radio" name="en-mode" value="${v}" ${(v === "on") === on ? "checked" : ""}> ${lab}</label>`;
+    const rows = devs.map((d) => {
+      const disabled = !d.connectable;
+      const name = this._names[d.mac] || this._ha(d.mac) || d.name || d.mac;
+      const sig = this._signalOf(d.rssi);
+      return `<tr style="${disabled ? "opacity:.5" : ""}">
+        <td style="text-align:center"><input type="checkbox" class="en-pick" data-mac="${d.mac}" ${sel.has(d.mac) ? "checked" : ""} ${disabled ? "disabled" : ""}></td>
+        <td style="text-align:left;white-space:nowrap">${escHtml(name)}</td>
+        <td style="white-space:nowrap">${this._rssiCell(d.rssi)}</td>
+        <td style="text-align:left;color:${disabled ? "var(--tm-text-2,#9aa0a6)" : sig.color};font-size:12px;white-space:nowrap">${disabled ? "not connectable" : sig.lab}</td>
+      </tr>`;
+    }).join("");
+    this.querySelector("#m-body").innerHTML = `
+      <div style="margin-bottom:6px">${mode("on", "Enable")}${mode("off", "Disable")}</div>
+      <div class="muted" style="margin:4px 0 8px">${on
+        ? "Each device gets its own random bind key; one that is already encrypted keeps its key. BTHome entries in Home Assistant are updated with the key. Anything else that reads these devices stops decoding them until it has the key too."
+        : "Turns encrypted advertising off and removes the key from the BTHome entries in Home Assistant."} Runs in the background, parallel by proxy.</div>
+      <div id="en-scroll" style="overflow:auto;max-height:46vh">
+        <table style="font-size:12px"><thead><tr>
+          <th style="width:30px"></th><th style="text-align:left">Device</th><th>Signal</th><th style="text-align:left">Status</th>
+        </tr></thead><tbody>${rows}</tbody></table>
+      </div>`;
+    this.querySelector("#m-actions").innerHTML = `
+      <button id="en-start" ${sel.size ? "" : "disabled"}>${on ? "Enable" : "Disable"} on ${sel.size}</button>
+      <button id="en-cancel" class="ghost" style="margin-left:auto">Cancel</button>`;
+    this.querySelectorAll('input[name="en-mode"]').forEach((r) => r.onchange = (e) => {
+      this._enEnable = e.target.value === "on";
+      this._renderEncryptDialog();
+    });
+    this.querySelectorAll(".en-pick").forEach((c) => c.onchange = () => {
+      if (c.checked) this._enSel.add(c.dataset.mac); else this._enSel.delete(c.dataset.mac);
+      const sc = this.querySelector("#en-scroll"); const top = sc ? sc.scrollTop : 0;
+      this._renderEncryptDialog();
+      const sc2 = this.querySelector("#en-scroll"); if (sc2) sc2.scrollTop = top;
+    });
+    this.querySelector("#en-cancel").onclick = () => this._closeModal();
+    const start = this.querySelector("#en-start");
+    if (start) start.onclick = async () => {
+      const macs = [...this._enSel], enable = this._enEnable;
+      const warn = enable
+        ? `Enable encrypted advertising on ${macs.length} device(s)?\n\nAnything that reads them and does not have their bind keys stops decoding them. Home Assistant's BTHome entries are updated for you.`
+        : `Disable encrypted advertising on ${macs.length} device(s)?\n\nThe keys are removed from Home Assistant's BTHome entries.`;
+      if (!(await this._confirm(warn, { okText: enable ? "Enable" : "Disable", danger: enable }))) return;
+      void this._closeModal();
+      void this._startBulk(macs, { enable });
+    };
+  }
+
+  _encryptionNote(r) {
+    const on = r.enabled;
+    const ha = {
+      updated: on ? "Home Assistant's BTHome entry now has the key." : "The key was removed from Home Assistant's BTHome entry.",
+      no_entry: on ? "Home Assistant has no BTHome entry for it yet: add the device there and enter the key above when asked." : "Home Assistant has no BTHome entry for it, so nothing else changed.",
+      not_bthome: `It advertises ${r.adv_type}, not BTHome, so Home Assistant was left alone.${on ? " Use the key above wherever it is read." : ""}`,
+      failed: `Updating Home Assistant's BTHome entry failed (see the log). ${on ? "Enter the key above there yourself." : "Remove its key there yourself."}`,
+    }[r.ha] || "";
+    const stale = r.ha === "failed" || r.ha === "no_entry";
+    return `${stale ? "⚠️" : "✅"} Encryption ${on ? "on" : "off"} and verified. ${ha}`;
   }
 
   // ---- Compare: side-by-side config matrix for ALL devices (scan ∪ backups), no connect ----
@@ -2743,8 +2860,8 @@ class TelinkManagerPanel extends HTMLElement {
     const ck = (id, lab, tip) => `<label title="${tip}" style="margin-right:14px;cursor:pointer"><input type="checkbox" id="${id}"> ${lab}</label>`;
     const who = this._names[mac] || mac;
     const intro = isClone
-      ? `Copy the ticked settings from this snapshot onto ANOTHER device (nothing ticked by default). The MAC is never cloned.`
-      : `Restore the ticked settings to <b>${who}</b> from this snapshot (nothing ticked by default).`;
+      ? `Copy the ticked settings from this snapshot onto ANOTHER device (nothing ticked by default). The MAC is never cloned, and encryption and the bind key stay as the target has them.`
+      : `Restore the ticked settings to <b>${who}</b> from this snapshot (nothing ticked by default). Encryption stays as the device has it.`;
     box.style.display = "";
     box.innerHTML = `
       <div class="advzone" style="margin-top:12px">
@@ -2761,6 +2878,11 @@ class TelinkManagerPanel extends HTMLElement {
         <div class="fld"><button id="rs-go" class="danger" disabled>${isClone ? "Clone" : "Restore"}</button>
           ${isClone ? "" : `<button id="rs-cancel" class="ghost">← Back</button>`}</div>
       </div>`;
+    if (isClone) {
+      const bk = this.querySelector("#rs-bind");
+      bk.disabled = true;
+      bk.parentElement.title = "Each device needs its own bind key, so the key is never cloned.";
+    }
     this.querySelector("#rs-cancel").onclick = closeRestore;
     // The action button stays disabled until at least one item is ticked
     // (and, for clone, until a real target device is chosen) — running it otherwise is a no-op.
