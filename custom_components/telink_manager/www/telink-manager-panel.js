@@ -2168,12 +2168,14 @@ class TelinkManagerPanel extends HTMLElement {
     if (!this._devs || !this._devs.length) { this._status("Refresh first — no devices to change."); return; }
     this._modalShell("🔐 Encrypted advertising");
     this._enEnable = true;
-    this._enSel = new Set(this._devs.filter((d) => d.connectable).map((d) => d.mac));
+    // Unlike Read all, this breaks every other reader of a device, so each one is picked on purpose.
+    this._enSel = new Set();
     this._renderEncryptDialog();
   }
 
   _renderEncryptDialog() {
-    const devs = (this._devs || []).slice().sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+    // A repeater has no encrypted advertising of its own and the write refuses it.
+    const devs = (this._devs || []).filter((d) => !d.blethr).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
     const sel = this._enSel, on = this._enEnable;
     const mode = (v, lab) => `<label style="cursor:pointer;margin-right:14px;font-size:13px"><input type="radio" name="en-mode" value="${v}" ${(v === "on") === on ? "checked" : ""}> ${lab}</label>`;
     const rows = devs.map((d) => {

@@ -86,14 +86,16 @@ async def async_sync_bthome(hass: HomeAssistant, mac: str, key: bytes | None) ->
             data.pop(CONF_BINDKEY, None)
         if data != dict(entry.data):
             hass.config_entries.async_update_entry(entry, data=data)
-        if key is None:
-            # BTHome raises this when plaintext arrives while it holds a key and clears it only on
-            # decrypted data, so it would stay behind after we drop the key.
-            ir.async_delete_issue(hass, BTHOME_DOMAIN, f"encryption_removed_{entry.entry_id}")
         if entry.disabled_by is None:
             if key is None:
                 await _async_wait_for_plain_advert(hass, mac)
             await hass.config_entries.async_reload(entry.entry_id)
+        # BTHome raises this when plaintext arrives while it holds a key and clears it only on
+        # decrypted data. After a disable it would stay behind for good. After an enable the
+        # reload replays the last plaintext advert into the entry that now has the key, so it
+        # shows until the first encrypted advert. Waiting for that advert instead is no option:
+        # the old entry has no key yet and would open a reauth flow for it.
+        ir.async_delete_issue(hass, BTHOME_DOMAIN, f"encryption_removed_{entry.entry_id}")
     except Exception:  # noqa: BLE001
         _LOGGER.warning("Could not update the BTHome entry for %s", mac, exc_info=True)
         return "failed"

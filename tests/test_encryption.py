@@ -121,7 +121,19 @@ async def test_sync_sets_the_key_and_reloads(issues):
     assert await encryption.async_sync_bthome(hass, MAC, KEY) == "updated"
     assert entry.data == {"sleepy_device": False, "bindkey": KEY.hex()}
     assert hass.config_entries.reloaded == ["entry1"]
-    assert issues == []
+    assert issues == ["encryption_removed_entry1"]
+
+
+async def test_setting_a_key_clears_the_downgrade_issue_the_reload_raised(monkeypatch):
+    hass = _hass(_entry())
+    reloaded_at_delete = []
+    monkeypatch.setattr(
+        encryption.ir,
+        "async_delete_issue",
+        lambda h, domain, issue_id: reloaded_at_delete.append(list(hass.config_entries.reloaded)),
+    )
+    await encryption.async_sync_bthome(hass, MAC, KEY)
+    assert reloaded_at_delete == [["entry1"]]
 
 
 async def test_sync_without_a_key_removes_it_and_clears_the_downgrade_issue(issues):
@@ -160,7 +172,7 @@ async def test_removing_the_key_does_not_wait_when_the_newest_advert_is_not_encr
     assert hass.config_entries.reloaded == ["entry1"]
 
 
-async def test_setting_a_key_never_waits_for_an_advert(last_advert):
+async def test_setting_a_key_never_waits_for_an_advert(last_advert, issues):
     last_advert.info = _advert(encrypted=True)
     hass = _hass(_entry())
     assert await encryption.async_sync_bthome(hass, MAC, KEY) == "updated"
