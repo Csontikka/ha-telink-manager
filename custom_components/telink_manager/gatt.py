@@ -941,6 +941,8 @@ async def async_set_name(hass: HomeAssistant, mac: str, name: str, restore_clock
             dev_t = clock.get("device_time")
             out["device_time"] = dev_t
             out["clock_restored"] = dev_t is not None and abs(dev_t - clock["sent"]) <= 60
+            if clock.get("error"):
+                out["clock_error"] = clock["error"]
         except Exception as e:  # noqa: BLE001
             out["clock_restored"] = False
             out["clock_error"] = repr(e)
@@ -975,14 +977,14 @@ async def async_set_comfort(hass: HomeAssistant, mac: str, t_lo: float, t_hi: fl
 async def async_set_time(hass: HomeAssistant, mac: str, ts: int | None = None) -> dict:
     """Set the device clock to `ts`, the unix seconds the LCD should display, or by default to
     Home Assistant's local time (see local_now)."""
-    if ts is None:
-        ts = local_now()
-    payload = struct.pack("<I", int(ts) & 0xFFFFFFFF)
 
     async def fn(client):
-        raw = await _cmd(client, CMD_TIME, payload)
+        # Taken once connected: through a proxy the connection alone can take tens of seconds,
+        # and a time picked before it would leave the clock behind by that much.
+        sent = local_now() if ts is None else int(ts)
+        raw = await _cmd(client, CMD_TIME, struct.pack("<I", sent & 0xFFFFFFFF))
         device_time = struct.unpack("<I", raw[1:5])[0] if len(raw) >= 5 else None
-        return {"ok": True, "mac": mac.upper(), "sent": int(ts), "device_time": device_time}
+        return {"ok": True, "mac": mac.upper(), "sent": sent, "device_time": device_time}
 
     return await _with_client(hass, mac, fn)
 
@@ -1469,8 +1471,6 @@ async def _with_blethr_client(hass: HomeAssistant, mac: str, fn, retries: int = 
 async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, changes: dict) -> dict:
     """Apply changes to a repeater and read the whole device back, so the caller sees the result."""
 
-    if "device_time" in changes and changes["device_time"] is None:
-        changes = {**changes, "device_time": local_now()}
     target = (changes.get("ext_mac") or "").upper()
     if target and target == mac.upper():
         return {"ok": False, "mac": mac.upper(), "error": "a repeater cannot repeat itself"}
@@ -1491,8 +1491,12 @@ async def async_blethr_write(hass: HomeAssistant, mac: str, current: dict, chang
                 "mac": mac.upper(),
                 "error": "could not read the current configuration; nothing written",
             }
+        todo = changes
+        if "device_time" in changes and changes["device_time"] is None:
+            # No value: Home Assistant's local time, taken now that the link is up (see async_set_time).
+            todo = {**changes, "device_time": local_now()}
         try:
-            written = await blethr.async_apply(client, base, changes)
+            written = await blethr.async_apply(client, base, todo)
         except ValueError as e:
             return {"ok": False, "mac": mac.upper(), "error": str(e)}
         fields = await blethr.async_read_fields(client)

@@ -59,6 +59,21 @@ async def test_set_time_without_ts_sends_home_assistant_time(monkeypatch):
     assert out["sent"] == want and out["device_time"] == want
 
 
+async def test_set_time_is_taken_after_the_connection_is_up(monkeypatch):
+    # A proxy connection can take tens of seconds; the clock must not lag behind by that.
+    _ha_now(monkeypatch, "2026-10-13T14:30:05+02:00")
+    sent = _capture_client(monkeypatch)
+    inner = gatt._with_client
+
+    async def slow_connect(hass, mac, fn):
+        _ha_now(monkeypatch, "2026-10-13T14:30:25+02:00")
+        return await inner(hass, mac, fn)
+
+    monkeypatch.setattr(gatt, "_with_client", slow_connect)
+    await gatt.async_set_time(None, MAC)
+    assert struct.unpack("<I", sent[0])[0] == gatt.local_now()
+
+
 async def test_set_time_keeps_an_explicit_ts(monkeypatch):
     sent = _capture_client(monkeypatch)
     await gatt.async_set_time(None, MAC, 1234567890)
