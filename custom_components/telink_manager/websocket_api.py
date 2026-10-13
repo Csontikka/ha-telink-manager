@@ -73,6 +73,9 @@ async def ws_set_name(hass: HomeAssistant, connection, msg):
         vol.Required("type"): "telink_manager/set_device_name",
         vol.Required("mac"): str,
         vol.Required("name"): str,
+        vol.Optional("restore_clock", default=False): bool,
+        # Panels from before 0.1.19 send the time they want here; its presence still asks for the
+        # clock back, but the value is ignored in favour of Home Assistant's local time.
         vol.Optional("ts"): vol.Coerce(int),
     }
 )
@@ -80,10 +83,11 @@ async def ws_set_name(hass: HomeAssistant, connection, msg):
 async def ws_set_device_name(hass: HomeAssistant, connection, msg):
     """Write the device's stored BLE name on the thermometer (command 0x01).
 
-    The rename restarts the firmware and drops its clock, so the caller may pass `ts` (the
-    TZ-adjusted unix seconds the display should show) to have the clock written back immediately.
+    The rename restarts the firmware and drops its clock, so the caller may pass `restore_clock`
+    to have the clock written back immediately.
     """
-    result = await gatt.async_set_name(hass, msg["mac"], msg["name"], msg.get("ts"))
+    restore = msg["restore_clock"] or "ts" in msg
+    result = await gatt.async_set_name(hass, msg["mac"], msg["name"], restore)
     if result.get("verified"):  # keep the scan-list cache in sync (empty name -> forget)
         await gatt.async_remember_ble_name(hass, msg["mac"], msg["name"])
     connection.send_result(msg["id"], result)
@@ -112,13 +116,14 @@ async def ws_set_comfort(hass: HomeAssistant, connection, msg):
     {
         vol.Required("type"): "telink_manager/set_time",
         vol.Required("mac"): str,
-        vol.Required("ts"): vol.Coerce(int),
+        vol.Optional("ts"): vol.Coerce(int),
     }
 )
 @websocket_api.async_response
 async def ws_set_time(hass: HomeAssistant, connection, msg):
-    """Set the device clock (command 0x23). ts = TZ-adjusted unix seconds to display."""
-    result = await gatt.async_set_time(hass, msg["mac"], msg["ts"])
+    """Set the device clock (command 0x23). Without `ts` (the unix seconds to display) it is set to
+    Home Assistant's local time."""
+    result = await gatt.async_set_time(hass, msg["mac"], msg.get("ts"))
     connection.send_result(msg["id"], result)
 
 

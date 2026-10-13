@@ -1292,9 +1292,9 @@ class TelinkManagerPanel extends HTMLElement {
       }
     };
     this.querySelector("#b-clock").onclick = async () => {
-      const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+      // No value: the backend sets Home Assistant's local time, whatever zone this browser is in.
       const r = await this._runCmd("Setting clock…",
-        { type: "telink_manager/blethr_write", mac, current: f, changes: { device_time: ts } },
+        { type: "telink_manager/blethr_write", mac, current: f, changes: { device_time: null } },
         () => "✅ Clock set.");
       if (r && r.fields) { this._loaded = r.fields; this._modalView(mac, r.fields); }
     };
@@ -1526,11 +1526,10 @@ class TelinkManagerPanel extends HTMLElement {
 
     this.querySelector("#c-name").onclick = async () => {
       const name = this.querySelector("#dname").value;
-      // Renaming restarts the firmware, which drops its clock, so send the current time along and
-      // let the backend write it back on the same connection.
-      const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+      // Renaming restarts the firmware, which drops its clock, so ask the backend to write it back
+      // once the device is up again.
       const r = await this._runCmd("Setting device name…",
-        { type: "telink_manager/set_device_name", mac, name, ts },
+        { type: "telink_manager/set_device_name", mac, name, restore_clock: true },
         (r) => `✅ Device name set: ${escHtml(r.device_name) || "(default)"}` +
           (r.clock_restored === false
             ? " ⚠️ The rename restarted the device and its clock could not be set back — use “Set clock”."
@@ -1578,9 +1577,9 @@ class TelinkManagerPanel extends HTMLElement {
         sensor_is_default: true }); this._autoBackup(mac); }
     };
     this.querySelector("#c-time").onclick = async () => {
-      const ts = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+      // No ts: the backend sets Home Assistant's local time, whatever zone this browser is in.
       const r = await this._runCmd("Setting clock…",
-        { type: "telink_manager/set_time", mac, ts },
+        { type: "telink_manager/set_time", mac },
         (r) => `✅ Clock set. Device: ${this._clockStr(r.device_time)}`);
       if (r && r.ok) {
         this._loaded.device_time = r.device_time;
@@ -1718,9 +1717,26 @@ class TelinkManagerPanel extends HTMLElement {
            `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
   }
 
+  // Now, as the thermometers count it: Home Assistant's wall-clock time read as if it were UTC.
+  // The same zone the backend sets clocks in, so a browser elsewhere does not see a false drift.
+  _haLocalNow() {
+    const now = new Date();
+    const tz = this._hass && this._hass.config && this._hass.config.time_zone;
+    if (tz) {
+      try {
+        const p = {};
+        for (const x of new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric",
+          month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" })
+          .formatToParts(now)) p[x.type] = Number(x.value);
+        return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) / 1000;
+      } catch (e) { /* unknown zone: fall back to the browser's */ }
+    }
+    return Math.floor(now.getTime() / 1000) - now.getTimezoneOffset() * 60;
+  }
+
   _clockDiff(epoch) {
     if (!epoch) return "";
-    const nowLocal = Math.floor(Date.now() / 1000) - new Date().getTimezoneOffset() * 60;
+    const nowLocal = this._haLocalNow();
     const diff = epoch - nowLocal;
     const a = Math.abs(diff);
     if (a <= 3) return "in sync";
