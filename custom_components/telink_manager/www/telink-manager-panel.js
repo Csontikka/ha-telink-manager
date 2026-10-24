@@ -1494,6 +1494,13 @@ class TelinkManagerPanel extends HTMLElement {
       <div class="fld"><span class="lab">Reboot the device</span>
         <button id="c-reboot" class="ghost">Reboot</button></div>
 
+      <h3>Firmware</h3>
+      <div class="muted">Flashes the latest PVVX release for this board over the Bluetooth proxy (Telink OTA). Settings, name, bind key and encryption are snapshotted first and put back if the new version starts with defaults. A failed transfer leaves the current firmware in place; keep the device close to a proxy.</div>
+      <div class="fld"><span class="lab">Version</span><b id="ota-ver">v${esc(f.fw_version || "?")}</b></div>
+      <div class="fld"><button id="c-ota-check" class="ghost">Check for update</button>
+        <button id="c-ota-start">Update firmware</button></div>
+      <div class="fld"><span class="lab">Progress</span><span id="ota-prog" class="muted">—</span></div>
+
       <div class="dangerzone">
         <h3>⛔ Dangerous device commands</h3>
         <div class="warn">Each of these can make Home Assistant lose this device. They are confirmed individually.</div>
@@ -1708,6 +1715,50 @@ class TelinkManagerPanel extends HTMLElement {
       await this._runCmd("Rebooting…",
         { type: "telink_manager/reboot", mac },
         () => "✅ Reboot sent — the device returns shortly.");
+    };
+    const otaProg = (j) => {
+      const el = this.querySelector("#ota-prog");
+      if (!el || !j || !j.state) return;
+      const msgs = {
+        starting: "Starting…", flashing: `Flashing ${j.percent}% (${j.sent}/${j.blocks} blocks)`,
+        verifying: "Transfer done, waiting for the device to reboot…",
+        restoring: "Updated; putting the previous settings back…",
+        done: `✅ Updated v${j.from} → v${j.after}${j.elapsed_s ? ` in ${j.elapsed_s}s` : ""}` +
+          (j.settings_restored ? " (settings restored)" : ""),
+        unverified: `⚠️ ${j.error}`, failed: `❌ ${j.error}`,
+      };
+      el.textContent = msgs[j.state] || j.state;
+    };
+    const otaPoll = () => {
+      clearTimeout(this._otaTimer);
+      this._otaTimer = setTimeout(async () => {
+        if (!this.querySelector("#ota-prog")) return;   // view closed
+        try {
+          const j = await this._ws({ type: "telink_manager/ota_status", mac });
+          otaProg(j);
+          if (j.active) otaPoll();
+          else if (j.after) this.querySelector("#ota-ver").textContent = "v" + j.after;
+        } catch (e) { otaPoll(); }
+      }, 2000);
+    };
+    this._ws({ type: "telink_manager/ota_status", mac }).then(j => { otaProg(j); if (j.active) otaPoll(); })
+      .catch(() => {});
+    this.querySelector("#c-ota-check").onclick = async () => {
+      await this._runCmd("Checking firmware…", { type: "telink_manager/ota_check", mac },
+        (r) => r.update_available
+          ? `⬆️ v${r.latest} is available (running v${r.current}, ${r.file}).`
+          : `✅ Up to date: v${r.current} (latest v${r.latest}).`);
+    };
+    this.querySelector("#c-ota-start").onclick = async () => {
+      if (!(await this._confirm(
+        "Update this thermometer's firmware to the latest PVVX release?\n\nIt takes a few minutes over a proxy. " +
+        "Do not move the device or restart Home Assistant meanwhile. If the transfer fails the device keeps its " +
+        "current firmware and you can try again.",
+        { okText: "Update firmware", danger: true }))) return;
+      const r = await this._runCmd("Reading device and downloading firmware…",
+        { type: "telink_manager/ota_start", mac },
+        (r) => `⏳ Flashing v${r.current} → v${r.latest} in the background; progress below.`);
+      if (r && r.ok) { otaProg(r.job); otaPoll(); }
     };
     this.querySelector("#c-factory").onclick = async () => {
       if (!(await this._confirm(

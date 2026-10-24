@@ -14,7 +14,7 @@ A Home Assistant admin panel for configuring **Telink BLE thermometers** running
 
 This is a **panel-only** integration: it adds one sidebar entry and creates **no entities, sensors or polling**. Your thermometers keep advertising to the regular Bluetooth/BTHome integration exactly as before — Telink Manager only connects on demand when you read or write a device.
 
-> **This configures thermometers — it does not flash firmware.** Reading and writing settings uses the **PVVX** configuration protocol, so your devices must be running **PVVX firmware** (the widely used firmware in the [ATC_MiThermometer](https://github.com/pvvx/ATC_MiThermometer) family). The original **atc1441** firmware uses a different configuration interface and is **not** supported for read/write here. To convert a stock Xiaomi thermometer, or one still on the original ATC firmware, flash it first with the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html); then this panel can read and write its settings.
+> **This configures and updates PVVX thermometers — it does not convert stock ones.** Reading and writing settings uses the **PVVX** configuration protocol, so your devices must be running **PVVX firmware** (the widely used firmware in the [ATC_MiThermometer](https://github.com/pvvx/ATC_MiThermometer) family). The original **atc1441** firmware uses a different configuration interface and is **not** supported for read/write here. To convert a stock Xiaomi thermometer, or one still on the original ATC firmware, flash it first with the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html); then this panel can read and write its settings and keep its PVVX firmware up to date.
 
 ## Features
 
@@ -34,6 +34,7 @@ This is a **panel-only** integration: it adds one sidebar entry and creates **no
 - **Read all** — a server-side bulk job that reads every device in parallel, grouped by proxy, with retries. It survives page refresh and navigation (progress is polled from the server) so you can walk away and come back.
 - **Encrypted advertising** — turn encrypted beacons on or off for one device (Commands) or for many at once (**🔐 Encryption**, the same server-side job as Read all; its picker starts with nothing selected and leaves repeaters out). Each device gets its own random bind key, which is written to the device and read back before Home Assistant is touched. If the device advertises BTHome and Home Assistant has a BTHome entry for it, that entry's key is set (or removed) and the entry reloaded, so readings keep coming in. Otherwise the key is shown so you can enter it wherever the device is read.
 - **Battery column** — estimated charge and voltage from the advertisement, colour-coded.
+- **Firmware update** — check a device against the latest PVVX release and flash it over the proxy (Telink OTA, the same transfer the web flasher uses), as a background job with live progress. The image for the device's board is downloaded from the PVVX repository and its header and CRC are checked before anything is sent. The configuration, name, bind key and encryption are snapshotted first and written back if the new version comes up with defaults. A transfer that fails leaves the device on its old firmware. Only PVVX → newer PVVX BLE images (up to 128 KiB) are supported: no Zigbee, no signed or "back to original" images.
 
 ## Screenshots
 
@@ -129,7 +130,7 @@ That's it. Open the panel and press **Scan**.
 
 ## Known limitations
 
-- **Configures, doesn't flash.** This panel reads and writes settings using the **PVVX** firmware's configuration protocol, so devices must be running **PVVX firmware**. It cannot flash firmware (use the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)), and it does not configure stock Xiaomi firmware or the original **atc1441** firmware (their config interfaces differ from PVVX's).
+- **Updates PVVX, doesn't convert.** This panel reads and writes settings using the **PVVX** firmware's configuration protocol, so devices must be running **PVVX firmware**. It can update PVVX firmware to the latest PVVX release, but cannot flash a stock or atc1441 device, Zigbee or signed images (use the [PVVX web flasher](https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html)), and it does not configure stock Xiaomi firmware or the original **atc1441** firmware (their config interfaces differ from PVVX's).
 - **It is not a sensor integration.** Temperature and humidity reach Home Assistant through the built-in **Bluetooth/BTHome** integration — Telink Manager creates no sensors. It only configures the device. The one thing it changes on the Home Assistant side is the bind key of a device's BTHome entry when you turn encrypted advertising on or off.
 - **An active (connectable) proxy is required** to read or write. A passive proxy only forwards advertisements (so you get scan and battery, but no connection) — see [Bluetooth proxies](#bluetooth-proxies).
 - **No BLE pairing / PIN.** Home Assistant's Bluetooth proxies cannot perform BLE pairing, so a device PIN is intentionally not settable here — setting one would lock this panel out, recoverable only with a hardware flasher.
@@ -184,7 +185,7 @@ When the reference test above points at the integration, [open an issue](https:/
 
 ## Privacy & telemetry
 
-Telink Manager collects **no telemetry and never phones home**. It runs entirely inside your Home Assistant instance: it talks only to your thermometers (over your own Bluetooth proxies) and stores friendly names and backups in your local HA storage. No usage data, device identifiers (including BLE MAC addresses), or analytics are sent to the developer or any third party.
+Telink Manager collects **no telemetry and never phones home**. It runs entirely inside your Home Assistant instance: it talks only to your thermometers (over your own Bluetooth proxies) and, only when you check for or start a firmware update, downloads the public PVVX firmware index and image from `raw.githubusercontent.com/pvvx/ATC_MiThermometer` (no device data is sent). It stores friendly names and backups in your local HA storage. No usage data, device identifiers (including BLE MAC addresses), or analytics are sent to the developer or any third party.
 
 The only place this integration ever appears in any statistics is Home Assistant's own [Analytics](https://www.home-assistant.io/integrations/analytics/), which is **opt-in**, anonymized and aggregated. If you have enabled HA Analytics, this integration's name and version are included — exactly like every other custom integration — and show up only as anonymous totals on the public [analytics dashboard](https://analytics.home-assistant.io/integrations/). You can turn it off at any time in **Settings → System → Analytics**.
 

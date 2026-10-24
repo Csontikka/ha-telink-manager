@@ -6,7 +6,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
-from . import backups, bulk, gatt
+from . import backups, bulk, gatt, ota
 from .const import DOMAIN
 
 
@@ -496,8 +496,43 @@ async def ws_blethr_reboot(hass: HomeAssistant, connection, msg):
     connection.send_result(msg["id"], await gatt.async_blethr_reboot(hass, msg["mac"]))
 
 
+# ----- firmware update (Telink OTA) -----
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "telink_manager/ota_check", vol.Required("mac"): str})
+@websocket_api.async_response
+async def ws_ota_check(hass: HomeAssistant, connection, msg):
+    """Current firmware vs the latest PVVX release for this board (reads the device)."""
+    result = await ota.async_check(hass, msg["mac"])
+    result.pop("_fields", None)  # the raw read, bind key included, stays server-side
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "telink_manager/ota_start",
+        vol.Required("mac"): str,
+        vol.Optional("force", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_ota_start(hass: HomeAssistant, connection, msg):
+    """Download the latest PVVX image for this board and flash it in the background."""
+    connection.send_result(msg["id"], await ota.async_start(hass, msg["mac"], msg["force"]))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "telink_manager/ota_status", vol.Optional("mac"): str})
+@callback
+def ws_ota_status(hass: HomeAssistant, connection, msg):
+    connection.send_result(msg["id"], ota.status(hass, msg.get("mac")))
+
+
 @callback
 def async_register(hass: HomeAssistant) -> None:
+    websocket_api.async_register_command(hass, ws_ota_check)
+    websocket_api.async_register_command(hass, ws_ota_start)
+    websocket_api.async_register_command(hass, ws_ota_status)
     websocket_api.async_register_command(hass, ws_proxies)
     websocket_api.async_register_command(hass, ws_coverage)
     websocket_api.async_register_command(hass, ws_services)
